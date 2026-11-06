@@ -16,10 +16,14 @@ fn main() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let mut shot: Option<PathBuf> = None;
     let mut mobile = false;
+    let mut desktop = false;
     let mut i = 1;
     while i < args.len() {
         if args[i] == "--mobile" {
             mobile = true;
+        }
+        if args[i] == "--desktop" {
+            desktop = true;
         }
         if args[i] == "--screenshot" {
             if let Some(p) = args.get(i + 1) {
@@ -29,8 +33,13 @@ fn main() -> eframe::Result<()> {
         }
         i += 1;
     }
+    // Pictures (`--screenshot`) show the phone layout, the reference design;
+    // add `--desktop` for a picture of the computer layout.
+    if shot.is_some() && !desktop {
+        mobile = true;
+    }
     // `--mobile` opens a phone-sized window with the phone layout.
-    let size = if mobile { [412.0, 860.0] } else { [1600.0, 940.0] };
+    let size = if mobile { [412.0, 916.0] } else { [1600.0, 940.0] };
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size(size)

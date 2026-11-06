@@ -150,9 +150,20 @@ impl App {
                     app.sel.insert(c.id);
                 }
             }
-            _ => {
+            "sim" => {
                 if app.shot.is_some() {
                     app.sim.start(&mut app.circ);
+                }
+            }
+            "none" => {}
+            _ => {
+                if app.shot.is_some() {
+                    if force_mobile {
+                        // Same view as the reference pictures: library open.
+                        app.lib_open = true;
+                    } else {
+                        app.sim.start(&mut app.circ);
+                    }
                 }
             }
         }
