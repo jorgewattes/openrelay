@@ -89,6 +89,8 @@ pub struct Theme {
     pub tag: Color32,
     pub grid: Color32,
     pub grid_major: Color32,
+    /// Dots of the computer sheet's grid.
+    pub dot: Color32,
     pub select: Color32,
     pub dead: Color32,
 }
@@ -98,13 +100,14 @@ impl Theme {
         if dark {
             Theme {
                 dark,
-                canvas: Color32::from_rgb(21, 21, 21),
+                canvas: Color32::from_rgb(12, 12, 12),
                 paper: Color32::from_rgb(21, 21, 21),
                 ink: Color32::from_rgb(232, 232, 232),
                 num: TEAL,
                 tag: TEAL,
                 grid: Color32::from_rgb(33, 33, 33),
                 grid_major: Color32::from_rgb(48, 48, 48),
+                dot: Color32::from_rgb(62, 62, 62),
                 select: Color32::from_rgb(52, 140, 255),
                 dead: Color32::from_rgb(110, 110, 110),
             }
@@ -116,8 +119,9 @@ impl Theme {
                 ink: INK,
                 num: NUM,
                 tag: INK,
-                grid: Color32::from_rgb(200, 205, 214),
-                grid_major: Color32::from_rgb(200, 205, 214),
+                grid: Color32::from_rgb(234, 237, 242),
+                grid_major: Color32::from_rgb(214, 219, 227),
+                dot: Color32::from_rgb(200, 205, 214),
                 select: SELECT,
                 dead: DEAD,
             }
@@ -269,6 +273,34 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
             let fill = if cx.act { Some(if cx.dark { Color32::from_rgb(110, 40, 36) } else { Color32::from_rgb(255, 210, 205) }) } else { None };
             d.rect(-4.4, 2.2, -2.6, 3.8, fill);
             d.text(-3.5, 3.0, "I>", 0.9, Align2::CENTER_CENTER, cx.ink);
+        }
+        Breaker2 | Rcd2 | Rcd4 => {
+            let n = c.kind.poles();
+            let rcd = c.kind != Breaker2;
+            let mut last = (0.0, 0.0);
+            for k in 0..n {
+                let x = 3.0 * k as f32;
+                last = contact(&d, x, !cx.act, false, pc(k), pc(k + n));
+                if !rcd {
+                    breaker_mark(&d, x);
+                }
+            }
+            d.dash(last.0, last.1, -2.6, 3.0);
+            let fill = if cx.act { Some(if cx.dark { Color32::from_rgb(110, 40, 36) } else { Color32::from_rgb(255, 210, 205) }) } else { None };
+            d.rect(-4.4, 2.2, -2.6, 3.8, fill);
+            d.text(-3.5, 3.0, if rcd { "IΔ" } else { "I>" }, 0.9, Align2::CENTER_CENTER, cx.ink);
+            if rcd {
+                // Toroid (current sensor) around all conductors, linked to the trip box.
+                let (cxm, rx) = (1.5 * (n as f32 - 1.0), 1.5 * (n as f32 - 1.0) + 1.0);
+                let pts: Vec<egui::Pos2> = (0..32)
+                    .map(|i| {
+                        let a = i as f32 / 32.0 * std::f32::consts::TAU;
+                        d.xf.p(cxm + rx * a.cos(), 4.7 + 0.4 * a.sin())
+                    })
+                    .collect();
+                p.add(Shape::closed_line(pts, Stroke::new(w, cx.ink)));
+                d.dash(cxm - rx, 4.7, -3.5, 3.8);
+            }
         }
         Thermal3 => {
             let fill = if cx.act { Some(if cx.dark { Color32::from_rgb(110, 40, 36) } else { Color32::from_rgb(255, 210, 205) }) } else { None };

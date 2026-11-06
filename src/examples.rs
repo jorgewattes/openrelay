@@ -7,6 +7,7 @@ pub fn list() -> Vec<(&'static str, fn() -> Circuit)> {
         (t("Partida direta com selo", "Direct-on-line start/stop"), direct_start as fn() -> Circuit),
         (t("Reversão de motor", "Forward / reverse motor"), reversing as fn() -> Circuit),
         (t("Lâmpada temporizada", "Timed lamp"), timed_lamp as fn() -> Circuit),
+        (t("Partida estrela-triângulo temporizada", "Timed star-delta start"), star_delta as fn() -> Circuit),
         (t("Tensões: motor Y/Δ e lâmpadas", "Voltages: Y/Δ motor and lamps"), voltages as fn() -> Circuit),
     ]
 }
@@ -242,4 +243,98 @@ fn shift_down(c: &mut Circuit, dy: i32) {
         w.a.y += dy;
         w.b.y += dy;
     }
+}
+/// Timed star-delta start: KM1 (line), KM2 (star) and KM3 (delta) with an
+/// on-delay timer KT1 and electrical interlocks. The motor (Δ380 / Y660 V on a
+/// 220/380 V system) starts in star with reduced voltage, then KT1 switches it to delta.
+pub fn star_delta() -> Circuit {
+    let mut c = Circuit::default();
+    // ---- Power circuit ----
+    c.add(TermL1, (6, 4).into(), 0, "");
+    c.add(TermL2, (9, 4).into(), 0, "");
+    c.add(TermL3, (12, 4).into(), 0, "");
+    c.add(TermPE, (15, 4).into(), 0, "");
+    c.add(Breaker3, (6, 7).into(), 0, "Q1");
+    c.add(Main3, (6, 17).into(), 0, "KM1");
+    let m = c.add(Motor6, (6, 30).into(), 0, "M1");
+    c.comp_mut(m).unwrap().volt = 1; // Δ380 / Y660 V
+    for x in [6, 9, 12] {
+        c.wire((x, 4), (x, 7));
+        c.wire((x, 13), (x, 17));
+        c.wire((x, 23), (x, 30));
+    }
+    c.wire((15, 4), (15, 30));
+    // Delta contactor KM3, fed from the lines after Q1: L1→W2, L2→U2, L3→V2.
+    c.add(Main3, (22, 19).into(), 0, "KM3");
+    c.wire((6, 14), (22, 14));
+    c.wire((22, 14), (22, 19));
+    c.wire((9, 15), (25, 15));
+    c.wire((25, 15), (25, 19));
+    c.wire((12, 16), (28, 16));
+    c.wire((28, 16), (28, 19));
+    c.wire((22, 25), (22, 46));
+    c.wire((22, 46), (12, 46));
+    c.wire((12, 46), (12, 41));
+    c.wire((25, 25), (25, 48));
+    c.wire((25, 48), (6, 48));
+    c.wire((6, 48), (6, 41));
+    c.wire((28, 25), (28, 50));
+    c.wire((28, 50), (9, 50));
+    c.wire((9, 50), (9, 41));
+    // Star contactor KM2 joins U2, V2 and W2.
+    c.add(Main3, (6, 53).into(), 0, "KM2");
+    c.wire((6, 48), (6, 53));
+    c.wire((9, 50), (9, 53));
+    c.wire((12, 46), (12, 53));
+    c.wire((6, 59), (9, 59));
+    c.wire((9, 59), (12, 59));
+
+    // ---- Control circuit (220 V) ----
+    c.add(TermL1, (40, 4).into(), 0, "");
+    c.add(Breaker1, (40, 6).into(), 0, "Q2");
+    c.wire((40, 4), (40, 6));
+    c.wire((40, 12), (40, 14));
+    c.add(PushNc, (40, 14).into(), 0, "S0");
+    c.wire((40, 20), (40, 23));
+    c.add(PushNo, (40, 23).into(), 0, "S1");
+    // Holding contact KM1 across S1.
+    c.wire((40, 21), (46, 21));
+    c.wire((46, 21), (46, 23));
+    c.add(ContactNo, (46, 23).into(), 0, "KM1");
+    c.wire((46, 29), (46, 31));
+    c.wire((46, 31), (40, 31));
+    c.wire((40, 29), (40, 33));
+    c.wire((40, 33), (72, 33));
+    // KM1 and KT1 coils.
+    c.wire((40, 33), (40, 35));
+    c.add(Coil, (40, 35).into(), 0, "KM1");
+    c.wire((40, 41), (40, 62));
+    c.wire((52, 33), (52, 35));
+    let kt = c.add(TimerOn, (52, 35).into(), 0, "KT1");
+    c.comp_mut(kt).unwrap().preset = 5.0;
+    c.wire((52, 41), (52, 62));
+    // Star: KT1 (timed opening) → KM3 NC interlock → KM2 coil.
+    c.wire((61, 33), (61, 35));
+    let a = c.add(ContactNc, (61, 35).into(), 0, "KT1");
+    c.comp_mut(a).unwrap().num = 0;
+    c.wire((61, 41), (61, 44));
+    c.add(ContactNc, (61, 44).into(), 0, "KM3");
+    c.wire((61, 50), (61, 53));
+    c.add(Coil, (61, 53).into(), 0, "KM2");
+    c.wire((61, 59), (61, 62));
+    // Delta: KT1 (timed closing) → KM2 NC interlock → KM3 coil.
+    c.wire((72, 33), (72, 35));
+    let b = c.add(ContactNo, (72, 35).into(), 0, "KT1");
+    c.comp_mut(b).unwrap().num = 0;
+    c.wire((72, 41), (72, 44));
+    c.add(ContactNc, (72, 44).into(), 0, "KM2");
+    c.wire((72, 50), (72, 53));
+    c.add(Coil, (72, 53).into(), 0, "KM3");
+    c.wire((72, 59), (72, 62));
+    c.wire((40, 62), (72, 62));
+    c.wire((40, 62), (40, 64));
+    c.add(TermN, (40, 64).into(), 2, "");
+    shift_left_part(&mut c, 3);
+    shift_down(&mut c, 3);
+    c
 }

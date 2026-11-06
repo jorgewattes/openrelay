@@ -29,11 +29,12 @@ O SimuEletro é uma releitura moderna dos simuladores clássicos de comandos el�
   - **Comandos** (roxo): botão NA (liga), botão NF (desliga), chave seletora, emergência e fins de curso NA/NF.
   - **Cargas** (marrom): lâmpada sinalizadora (5 cores) e sirene.
   - **Contatores** (ciano): contatos principais de 3 polos.
-  - **Proteções** (vermelho): fusível, disjuntor de 1 polo, disjuntor-motor de 3 polos e relé térmico.
+  - **Proteções** (vermelho): fusível, disjuntor de 1 e 2 polos, disjuntor-motor de 3 polos, **DR bipolar e tetrapolar** (desarma com fuga de corrente para a terra ou com um clique, como o botão de teste) e relé térmico.
   - **Motores** (verde-escuro): motor monofásico/CC e motor trifásico.
 - Ligação por fios com cantos automáticos, junções marcadas e bornes livres destacados.
 - Identificação automática (KM1, S1, H1, Q1…) e numeração dos bornes (13-14, 21-22, A1-A2, 1-2…).
 - Contatos **seguem** a bobina, o temporizador ou o disjuntor com a mesma identificação.
+- **Botoeiras com vários contatos:** dê a mesma identificação (ex.: S1) a vários contatos NA/NF e escolha o **Contato nº** nas propriedades (13-14, 21-22, 33-34…); na simulação todos mudam juntos.
 - Selecionar, mover (os fios acompanham), girar, excluir, desfazer e refazer.
 - **Copiar, recortar e colar** (Ctrl+C, Ctrl+X, Ctrl+V) e duplicar (Ctrl+D): o trecho colado vai para onde está o mouse; bobinas e botões colados ganham nova identificação (KM1 → KM2) e os contatos colados junto passam a seguir a nova bobina. Também funciona entre duas janelas/abas do SimuEletro.
 
@@ -48,7 +49,13 @@ O SimuEletro é uma releitura moderna dos simuladores clássicos de comandos el�
 ### Telas
 - **Computador:** menus, barra de ferramentas, lista de componentes à esquerda e propriedades à direita.
 - **Celular / tela estreita** (tema escuro, no estilo do app SimuRelay): barra superior com **MENU · PEÇAS · SIMULAR · FIO · MAIS · DESFAZER · REFAZER**; a biblioteca **PEÇAS** abre por cima da folha com um seletor de **categorias coloridas** e uma grade de símbolos. Com uma peça selecionada, a barra muda para **VALORES · GIRAR · COPIAR · EXCLUIR**. Há botões de zoom **− / +** no canto; arraste com um dedo para mover a folha, use a pinça para o zoom e **arraste de um borne a outro para ligar um fio**.
+- **Modo claro e modo escuro** (Ver → Tema, ou MAIS no celular). No modo Automático, o celular segue o padrão do aparelho e o computador fica claro.
 - Português e inglês (menu Ver → Idioma).
+
+### Exportar e imprimir
+- **Arquivo → Exportar imagem (tudo)** ou **(seleção)**: salva um PNG do desenho, em fundo branco.
+- **Arquivo → Imprimir / salvar em PDF** (Ctrl+P): cria uma página A4 com o título e o diagrama, pronta para imprimir.
+- No navegador e no celular o arquivo é baixado; no computador abre a janela para escolher onde salvar.
 
 ## Tensões
 
@@ -79,7 +86,7 @@ Como no simulador Falstad, um circuito pode ser enviado como **link**: **Arquivo
 
 - O circuito inteiro vai **dentro do próprio link**, compactado e codificado no endereço depois de `?c=`. Não é criado nenhum arquivo nem conta.
 - Quem abre o link recebe uma **cópia** para simular e alterar; **o link original nunca muda**.
-- Para abrir no programa de computador um link recebido: **Arquivo → 📥 Abrir circuito de um link**.
+- Para abrir um circuito recebido, basta acessar o link.
 
 ## Se o app não abrir
 
@@ -98,6 +105,8 @@ No menu **Arquivo → Exemplos** (ou ☰ no celular):
 1. **Partida direta com selo:** motor trifásico com disjuntor-motor, contator, botões liga/desliga e lâmpadas de "em funcionamento" e "disjuntor desarmado".
 2. **Reversão de motor:** dois contatores com intertravamento elétrico, que invertem as fases L1 e L3.
 3. **Lâmpada temporizada:** temporizador ao trabalho que acende uma lâmpada alguns segundos depois da partida.
+4. **Tensões:** motor Y/Δ e lâmpadas com tensões nominais diferentes.
+5. **Partida estrela-triângulo temporizada:** contatores KM1 (linha), KM2 (estrela) e KM3 (triângulo), temporizador KT1 e intertravamentos. O motor (Δ380/Y660 V) parte em estrela com tensão reduzida e, após 5 s, passa para triângulo.
 
 ## Como usar
 
@@ -106,7 +115,7 @@ No menu **Arquivo → Exemplos** (ou ☰ no celular):
 3. Dê aos contatos a mesma identificação da bobina que os aciona (ex.: KM1).
 4. Pressione **▶ Simular** (F5) e opere os botões e chaves.
 
-Atalhos no computador: `Ctrl+C` copiar · `Ctrl+X` recortar · `Ctrl+V` colar · `Ctrl+D` duplicar · `Ctrl+Z` desfazer · `Ctrl+Y` refazer · `Del` excluir · `R` girar · `W` fio · `V` selecionar · `F5` simular · `Esc` cancelar · roda do mouse = zoom · botão do meio/direito = mover a folha.
+Atalhos no computador: `Ctrl+C` copiar · `Ctrl+X` recortar · `Ctrl+V` colar · `Ctrl+D` duplicar · `Ctrl+P` imprimir/PDF · `Ctrl+Z` desfazer · `Ctrl+Y` refazer · `Del` excluir · `R` girar · `W` fio · `V` selecionar · `F5` simular · `Esc` cancelar · roda do mouse = zoom · botão do meio/direito = mover a folha.
 
 ## Como executar localmente
 

@@ -21,7 +21,7 @@ rfd = "0.15"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
-web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlCanvasElement", "HtmlElement", "Location", "History"] }
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlCanvasElement", "HtmlElement", "HtmlAnchorElement", "Location", "History", "Blob", "BlobPropertyBag", "Url"] }
 
 [profile.release]
 opt-level = 2

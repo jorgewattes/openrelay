@@ -10,7 +10,33 @@ use eframe::egui::{
 };
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Dark widgets in effect this frame (read by the phone layout's colours).
+pub static UI_DARK: AtomicBool = AtomicBool::new(false);
+
+/// Light / dark choice. Automatic follows the device on phones and stays light on computers.
+#[derive(Clone, Copy, PartialEq)]
+pub enum ThemeMode {
+    Auto,
+    Light,
+    Dark,
+}
+
+/// What an export takes.
+#[derive(Clone, Copy, PartialEq)]
+pub enum ExportScope {
+    All,
+    Selection,
+}
+
+/// An image / PDF export in progress: the view is set up, a screenshot taken and cropped.
+struct Export {
+    scope: ExportScope,
+    pdf: bool,
+    stage: u8,
+    view: (Vec2, f32),
+}
 
 /// Marks SimuEletro pieces in the system clipboard.
 const CLIP_PREFIX: &str = "SIMUELETRO-CLIP:";
@@ -21,7 +47,6 @@ const SHEET_H: f32 = 70.0;
 const ACCENT: Color32 = Color32::from_rgb(0, 110, 230);
 const FRAME_GREEN: Color32 = Color32::from_rgb(46, 150, 80);
 const PANEL_BG: Color32 = Color32::from_rgb(246, 247, 250);
-const DESK_BG: Color32 = Color32::from_rgb(214, 219, 226);
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tool {
@@ -39,6 +64,7 @@ enum Drag {
     WireFrom { start: P },
 }
 
+mod export;
 mod mobile;
 
 /// Bottom sheets used by the phone layout.
@@ -93,11 +119,13 @@ pub struct App {
     cat_list_open: bool,
     /// Share dialog with the generated link.
     share_link: Option<String>,
-    /// "Open from link" dialog text.
-    link_input: Option<String>,
     link_msg: String,
-    /// Visual theme currently applied to the widgets (dark = phone).
-    dark_applied: Option<bool>,
+    theme_mode: ThemeMode,
+    /// Dark theme in effect this frame.
+    dark: bool,
+    export: Option<Export>,
+    /// Style currently applied to the widgets: (dark, phone).
+    dark_applied: Option<(bool, bool)>,
     /// Copied / cut piece of circuit (also put in the system clipboard as text).
     clip: Option<Circuit>,
     /// Pastes since the last copy (shifts each paste a little further).
@@ -106,7 +134,7 @@ pub struct App {
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, shot: Option<PathBuf>, force_mobile: bool) -> Self {
-        setup_style(&cc.egui_ctx, force_mobile);
+        setup_style(&cc.egui_ctx, force_mobile, force_mobile);
         let mut app = App {
             circ: examples::direct_start(),
             sim: Sim::default(),
@@ -139,8 +167,10 @@ impl App {
             lib_open: false,
             cat_list_open: false,
             share_link: None,
-            link_input: None,
             link_msg: String::new(),
+            theme_mode: ThemeMode::Auto,
+            dark: force_mobile,
+            export: None,
             dark_applied: None,
             clip: None,
             paste_n: 0,
@@ -150,6 +180,28 @@ impl App {
         match preview.as_str() {
             "library" => app.lib_open = true,
             "share" => app.open_share(),
+            "stardelta" => {
+                app.circ = examples::star_delta();
+                app.title = examples::list()[3].0.to_string();
+                app.sim.start(&mut app.circ);
+            }
+            "protect" => {
+                app.circ = Circuit::default();
+                app.circ.add(Kind::Breaker1, (14, 20).into(), 0, "Q1");
+                app.circ.add(Kind::Breaker2, (26, 20).into(), 0, "Q2");
+                app.circ.add(Kind::Breaker3, (42, 20).into(), 0, "Q3");
+                app.circ.add(Kind::Rcd2, (58, 20).into(), 0, "DR1");
+                app.circ.add(Kind::Rcd4, (72, 20).into(), 0, "DR2");
+                app.circ.add(Kind::PushNo, (30, 36).into(), 0, "S1");
+                let n = app.circ.add(Kind::PushNc, (40, 36).into(), 0, "S1");
+                app.circ.comp_mut(n).unwrap().num = 1;
+            }
+            "export" => app.start_export(ExportScope::All, false),
+            "exportpdf" => app.start_export(ExportScope::All, true),
+            "exportsel" => {
+                app.sel = app.circ.comps.iter().filter(|c| c.pos.x < 30).map(|c| c.id).collect();
+                app.start_export(ExportScope::Selection, false);
+            }
             "paste" => {
                 // Copy the coil, its holding contact and the start button, then paste:
                 // the pasted coil becomes KM2 and its contact follows KM2.
@@ -203,6 +255,11 @@ impl App {
                     }
                 }
             }
+        }
+        match std::env::var("SIMU_THEME").as_deref() {
+            Ok("light") => app.theme_mode = ThemeMode::Light,
+            Ok("dark") => app.theme_mode = ThemeMode::Dark,
+            _ => {}
         }
         // `SIMU_LINK=<link>` opens a shared circuit (desktop check of share links).
         if let Some(c) = std::env::var("SIMU_LINK").ok().and_then(|l| crate::share::decode_from_url(&l)) {
@@ -515,7 +572,7 @@ impl App {
 
     fn menu_bar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("menu")
-            .frame(egui::Frame::new().fill(Color32::WHITE).inner_margin(Margin::symmetric(8, 3)))
+            .frame(egui::Frame::new().fill(surface(self.dark)).inner_margin(Margin::symmetric(8, 3)))
             .show(ctx, |ui| {
                 egui::MenuBar::new().ui(ui, |ui| {
                     ui.menu_button(t("Arquivo", "File"), |ui| {
@@ -535,9 +592,22 @@ impl App {
                         if ui.button(t("🔗 Compartilhar link…", "🔗 Share link…")).clicked() {
                             self.open_share();
                         }
-                        if ui.button(t("📥 Abrir circuito de um link…", "📥 Open circuit from a link…")).clicked() {
-                            self.link_input = Some(String::new());
-                            self.link_msg.clear();
+                        ui.separator();
+                        if ui.button(t("🖼 Exportar imagem (tudo)…", "🖼 Export image (all)…")).clicked() {
+                            self.start_export(ExportScope::All, false);
+                            ui.close();
+                        }
+                        let has_sel = !self.sel.is_empty() || !self.sel_w.is_empty();
+                        if ui
+                            .add_enabled(has_sel, egui::Button::new(t("🖼 Exportar imagem (seleção)…", "🖼 Export image (selection)…")))
+                            .clicked()
+                        {
+                            self.start_export(ExportScope::Selection, false);
+                            ui.close();
+                        }
+                        if ui.button(t("🖨 Imprimir / salvar em PDF…   Ctrl+P", "🖨 Print / save as PDF…   Ctrl+P")).clicked() {
+                            self.start_export(ExportScope::All, true);
+                            ui.close();
                         }
                         ui.separator();
                         ui.menu_button(t("Exemplos", "Examples"), |ui| {
@@ -615,6 +685,11 @@ impl App {
                         }
                         ui.checkbox(&mut self.numbers, t("Numeração dos bornes", "Terminal numbers"));
                         ui.checkbox(&mut self.grid, t("Grade", "Grid"));
+                        ui.separator();
+                        ui.label(t("Tema", "Theme"));
+                        ui.radio_value(&mut self.theme_mode, ThemeMode::Auto, t("Automático", "Automatic"));
+                        ui.radio_value(&mut self.theme_mode, ThemeMode::Light, t("Claro", "Light"));
+                        ui.radio_value(&mut self.theme_mode, ThemeMode::Dark, t("Escuro", "Dark"));
                         ui.separator();
                         let mut en = EN.load(Ordering::Relaxed);
                         ui.label(t("Idioma", "Language"));
@@ -749,11 +824,12 @@ impl App {
                 c.tag.clone()
             } else if c.kind.is_linked() {
                 renamed.get(&c.tag).cloned().unwrap_or_else(|| c.tag.clone())
+            } else if let Some(new) = renamed.get(&c.tag) {
+                // Another contact of the same pasted button keeps the button together.
+                new.clone()
             } else if !c.tag.is_empty() && self.circ.comps.iter().any(|o| !o.kind.is_linked() && o.tag == c.tag) {
                 let new = self.circ.next_tag(c.kind);
-                if c.kind.is_device() {
-                    renamed.insert(c.tag.clone(), new.clone());
-                }
+                renamed.insert(c.tag.clone(), new.clone());
                 new
             } else {
                 c.tag.clone()
@@ -863,45 +939,6 @@ impl App {
                 self.link_msg.clear();
             }
         }
-        if let Some(mut input) = self.link_input.take() {
-            let mut open = true;
-            let mut loaded = None;
-            egui::Window::new(format!("📥 {}", t("Abrir circuito de um link", "Open circuit from a link")))
-                .open(&mut open)
-                .collapsible(false)
-                .resizable(false)
-                .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
-                .fixed_size(Vec2::new(width, 0.0))
-                .show(ctx, |ui| {
-                    ui.label(t("Cole aqui o link recebido:", "Paste the link you received:"));
-                    ui.add(
-                        egui::TextEdit::multiline(&mut input)
-                            .desired_rows(3)
-                            .desired_width(f32::INFINITY)
-                            .hint_text("https://…/simueletro/?c=…"),
-                    );
-                    if ui.button(t("Abrir circuito", "Open circuit")).clicked() {
-                        match crate::share::decode_from_url(input.trim()) {
-                            Some(c) => loaded = Some(c),
-                            None => {
-                                self.link_msg =
-                                    t("Link inválido ou incompleto.", "Invalid or incomplete link.").into()
-                            }
-                        }
-                    }
-                    if !self.link_msg.is_empty() {
-                        ui.label(RichText::new(&self.link_msg).color(Color32::from_rgb(220, 70, 60)));
-                    }
-                });
-            if let Some(c) = loaded {
-                self.link_msg.clear();
-                self.open_shared(c);
-            } else if open {
-                self.link_input = Some(input);
-            } else {
-                self.link_msg.clear();
-            }
-        }
     }
 
     fn select_all(&mut self) {
@@ -916,9 +953,9 @@ impl App {
         egui::TopBottomPanel::top("toolbar")
             .frame(
                 egui::Frame::new()
-                    .fill(Color32::WHITE)
+                    .fill(surface(self.dark))
                     .inner_margin(Margin::symmetric(8, 6))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(225, 228, 234))),
+                    .stroke(Stroke::new(1.0_f32, line_col(self.dark))),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -1016,9 +1053,9 @@ impl App {
         egui::TopBottomPanel::bottom("status")
             .frame(
                 egui::Frame::new()
-                    .fill(Color32::WHITE)
+                    .fill(surface(self.dark))
                     .inner_margin(Margin::symmetric(10, 4))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(225, 228, 234))),
+                    .stroke(Stroke::new(1.0_f32, line_col(self.dark))),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -1043,7 +1080,7 @@ impl App {
                             ),
                         }
                     };
-                    ui.label(RichText::new(hint).color(Color32::from_rgb(70, 76, 90)));
+                    ui.label(RichText::new(hint).color(subtle(ui)));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let (run, col) = if !self.sim.running {
                             ("Stop", Color32::from_rgb(120, 126, 138))
@@ -1071,7 +1108,7 @@ impl App {
         egui::SidePanel::left("palette")
             .resizable(false)
             .exact_width(232.0)
-            .frame(egui::Frame::new().fill(PANEL_BG).inner_margin(Margin::symmetric(10, 10)))
+            .frame(egui::Frame::new().fill(panel_bg(self.dark)).inner_margin(Margin::symmetric(10, 10)))
             .show(ctx, |ui| {
                 ui.label(RichText::new(t("Componentes", "Components")).strong().size(15.0));
                 ui.add_space(4.0);
@@ -1099,7 +1136,7 @@ impl App {
         egui::SidePanel::right("props")
             .resizable(false)
             .exact_width(250.0)
-            .frame(egui::Frame::new().fill(PANEL_BG).inner_margin(Margin::symmetric(12, 10)))
+            .frame(egui::Frame::new().fill(panel_bg(self.dark)).inner_margin(Margin::symmetric(12, 10)))
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     if self.sim.running {
@@ -1119,6 +1156,7 @@ impl App {
             let tags = self.circ.device_tags();
             let before = self.circ.clone();
             let mut changed = false;
+            let mut tag_edited = false;
             if let Some(c) = self.circ.comp_mut(id) {
                 card(ui, |ui| {
                     ui.label(RichText::new(c.kind.name()).strong());
@@ -1126,10 +1164,29 @@ impl App {
                     if !c.kind.is_terminal() {
                         ui.horizontal(|ui| {
                             ui.label(t("Identificação", "Tag"));
-                            changed |= ui
-                                .add(egui::TextEdit::singleline(&mut c.tag).desired_width(90.0))
-                                .changed();
+                            let r = ui.add(egui::TextEdit::singleline(&mut c.tag).desired_width(90.0));
+                            changed |= r.changed();
+                            tag_edited |= r.lost_focus() || (r.changed() && !r.has_focus());
                         });
+                    }
+                    // Buttons / switches: several contacts share one tag (S1), each numbered.
+                    if c.kind.operator_family().is_some() {
+                        ui.horizontal(|ui| {
+                            ui.label(t("Contato nº", "Contact no."));
+                            let mut n = c.num as i32 + 1;
+                            if ui.add(egui::DragValue::new(&mut n).range(1..=9)).changed() {
+                                c.num = (n - 1) as u8;
+                                changed = true;
+                            }
+                        });
+                        ui.label(
+                            RichText::new(t(
+                                "Use a mesma identificação (ex.: S1) em vários contatos NA/NF para formar uma botoeira com vários contatos: todos mudam juntos.",
+                                "Give several NO/NC contacts the same tag (e.g. S1) to make one button with several contacts: they all move together.",
+                            ))
+                            .small()
+                            .color(subtle(ui)),
+                        );
                     }
                     // Voltage: only the tabulated values, picked from a list.
                     let choices = crate::circuit::volt_choices(c.kind);
@@ -1223,6 +1280,24 @@ impl App {
             if changed {
                 self.undo.push(before);
                 self.redo.clear();
+            }
+            // After a new tag is typed, give the contact the next free number of that device.
+            if tag_edited {
+                if let Some((kind, tag, num)) = self.circ.comp(id).map(|c| (c.kind, c.tag.clone(), c.num)) {
+                    let taken = self.circ.comps.iter().any(|o| {
+                        o.id != id
+                            && o.tag == tag
+                            && o.num == num
+                            && (o.kind.operator_family().is_some() && o.kind.operator_family() == kind.operator_family()
+                                || matches!((o.kind, kind), (Kind::ContactNo | Kind::ContactNc, Kind::ContactNo | Kind::ContactNc)))
+                    });
+                    if taken {
+                        let n = self.circ.free_num(id, kind, &tag);
+                        if let Some(c) = self.circ.comp_mut(id) {
+                            c.num = n;
+                        }
+                    }
+                }
             }
             ui.horizontal(|ui| {
                 if ui.button(format!("↻ {}", t("Girar", "Rotate"))).clicked() {
@@ -1355,7 +1430,7 @@ impl App {
                         Some(frac),
                     ));
                 }
-                Kind::Breaker1 | Kind::Breaker3 | Kind::Thermal3 => {
+                k if k.is_breaker() || k == Kind::Thermal3 => {
                     let tripped = c.st.on;
                     rows.push((
                         c.tag.clone(),
@@ -1476,7 +1551,7 @@ impl App {
         }
         self.handle_input(ui, &resp);
         self.paint(&painter);
-        if self.mobile {
+        if self.mobile && self.export.is_none() {
             self.mobile_hint(&painter);
         }
     }
@@ -1535,39 +1610,30 @@ impl App {
                     self.drag = Drag::Pan;
                 }
                 if let Some(id) = self.hit_comp(w) {
-                    let k = self.circ.comp(id).map(|c| c.kind);
-                    if matches!(
-                        k,
-                        Some(
-                            Kind::PushNo
-                                | Kind::PushNc
-                                | Kind::Switch
-                                | Kind::EStop
-                                | Kind::LimitNo
-                                | Kind::LimitNc
-                                | Kind::Breaker1
-                                | Kind::Breaker3
-                                | Kind::Thermal3
-                        )
-                    ) {
+                    if self.circ.comp(id).is_some_and(|c| c.kind.operable()) {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
                     }
                 }
                 if pressed {
                     if let Some(id) = self.hit_comp(w) {
-                        if let Some(c) = self.circ.comp_mut(id) {
-                            match c.kind {
+                        if let Some((kind, tag, on)) = self.circ.comp(id).map(|c| (c.kind, c.tag.clone(), c.st.on)) {
+                            // Every contact of the same button / switch (same tag) moves together.
+                            let fam = kind.operator_family();
+                            let same = |c: &Comp| {
+                                c.id == id || (fam.is_some() && !tag.is_empty() && c.tag == tag && c.kind.operator_family() == fam)
+                            };
+                            match kind {
                                 Kind::PushNo | Kind::PushNc => {
-                                    c.st.pressed = true;
+                                    for c in self.circ.comps.iter_mut().filter(|c| same(c)) {
+                                        c.st.pressed = true;
+                                    }
                                     self.held = Some(id);
                                 }
-                                Kind::Switch
-                                | Kind::EStop
-                                | Kind::LimitNo
-                                | Kind::LimitNc
-                                | Kind::Breaker1
-                                | Kind::Breaker3
-                                | Kind::Thermal3 => c.st.on = !c.st.on,
+                                k if k.operable() => {
+                                    for c in self.circ.comps.iter_mut().filter(|c| same(c)) {
+                                        c.st.on = !on;
+                                    }
+                                }
                                 _ => {}
                             }
                         }
@@ -1576,8 +1642,11 @@ impl App {
             }
             if released || !down {
                 if let Some(id) = self.held.take() {
-                    if let Some(c) = self.circ.comp_mut(id) {
-                        c.st.pressed = false;
+                    let tag = self.circ.comp(id).map(|c| c.tag.clone()).unwrap_or_default();
+                    for c in self.circ.comps.iter_mut() {
+                        if c.id == id || (!tag.is_empty() && c.tag == tag && matches!(c.kind, Kind::PushNo | Kind::PushNc)) {
+                            c.st.pressed = false;
+                        }
                     }
                 }
             }
@@ -1732,10 +1801,10 @@ impl App {
         P::new((wx - cx).round() as i32, (wy - cy).round() as i32)
     }
 
-    /// Dark endless grid used on phones (SimuRelay style).
+    /// Endless grid used on phones (SimuRelay style), dark or light.
     fn paint_dark_grid(&self, painter: &egui::Painter, th: &draw::Theme) {
         let r = self.canvas;
-        painter.rect_filled(r, 0.0, th.canvas);
+        painter.rect_filled(r, 0.0, th.paper);
         if !self.grid {
             return;
         }
@@ -1762,30 +1831,34 @@ impl App {
     }
 
     fn paint(&mut self, painter: &egui::Painter) {
-        let th = draw::Theme::get(self.mobile);
-        if th.dark {
+        // Exports are always drawn light on white, with no grid.
+        let exporting = self.export.is_some();
+        let th = draw::Theme::get(self.dark && !exporting);
+        if exporting {
+            painter.rect_filled(self.canvas, 0.0, Color32::WHITE);
+        } else if self.mobile {
             self.paint_dark_grid(painter, &th);
         } else {
-            self.paint_sheet(painter);
+            self.paint_sheet(painter, &th);
         }
         self.paint_circuit(painter, &th);
     }
 
-    /// Light drawing sheet with frame, columns and rows (computer layout).
-    fn paint_sheet(&self, painter: &egui::Painter) {
+    /// Drawing sheet with frame, columns and rows (computer layout).
+    fn paint_sheet(&self, painter: &egui::Painter, th: &draw::Theme) {
         let r = self.canvas;
         let z = self.zoom;
-        painter.rect_filled(r, 0.0, DESK_BG);
+        painter.rect_filled(r, 0.0, th.canvas);
         // Sheet with shadow.
         let tl = self.to_screen(0.0, 0.0);
         let br = self.to_screen(SHEET_W, SHEET_H);
         let sheet = Rect::from_min_max(tl, br);
         painter.rect_filled(sheet.translate(Vec2::new(3.0, 4.0)), 4.0, Color32::from_black_alpha(30));
-        painter.rect_filled(sheet, 2.0, Color32::WHITE);
+        painter.rect_filled(sheet, 2.0, th.paper);
         // Dot grid.
         if self.grid {
             let step = if z >= 7.0 { 1 } else { 2 };
-            let dot = Color32::from_rgb(200, 205, 214);
+            let dot = th.dot;
             let rad = (z * 0.07).clamp(0.6, 1.3);
             let vis = r.intersect(sheet);
             let (ax, ay) = self.to_world(vis.min);
@@ -1857,10 +1930,30 @@ impl App {
         let time = self.sim.time;
         let flash = ((self.frame / 15) % 2) == 0;
         let act = sim::device_active(&self.circ);
+        // While exporting: no selection marks or tool hints; a selection export
+        // draws only the selected parts and the wires that go with them.
+        let exporting = self.export.is_some();
+        let only_sel = matches!(&self.export, Some(e) if e.scope == ExportScope::Selection);
+        let keep_w: HashSet<usize> = if only_sel {
+            let pins: HashSet<P> =
+                self.circ.comps.iter().filter(|c| self.sel.contains(&c.id)).flat_map(|c| c.pins()).collect();
+            self.circ
+                .wires
+                .iter()
+                .enumerate()
+                .filter(|(i, w)| self.sel_w.contains(i) || (pins.contains(&w.a) && pins.contains(&w.b)))
+                .map(|(i, _)| i)
+                .collect()
+        } else {
+            (0..self.circ.wires.len()).collect()
+        };
 
         // Wires.
         let ww = (z * 0.16).clamp(1.0, 3.0);
         for (i, w) in self.circ.wires.iter().enumerate() {
+            if !keep_w.contains(&i) {
+                continue;
+            }
             let a = self.to_screen(w.a.x as f32, w.a.y as f32);
             let b = self.to_screen(w.b.x as f32, w.b.y as f32);
             let mut col = th_ink;
@@ -1880,7 +1973,7 @@ impl App {
                         None => col = th_dead,
                     }
                 }
-            } else if self.sel_w.contains(&i) {
+            } else if self.sel_w.contains(&i) && !exporting {
                 col = th_sel;
                 width = ww * 1.6;
             }
@@ -1892,11 +1985,11 @@ impl App {
         }
         // Junction dots.
         let mut count: HashMap<P, i32> = HashMap::new();
-        for w in &self.circ.wires {
+        for (_, w) in self.circ.wires.iter().enumerate().filter(|(i, _)| keep_w.contains(i)) {
             *count.entry(w.a).or_default() += 1;
             *count.entry(w.b).or_default() += 1;
         }
-        for c in &self.circ.comps {
+        for c in self.circ.comps.iter().filter(|c| !only_sel || self.sel.contains(&c.id)) {
             for p in c.pins() {
                 if count.contains_key(&p) {
                     *count.entry(p).or_default() += 1;
@@ -1905,7 +1998,7 @@ impl App {
         }
         let ends: Vec<P> = count.keys().copied().collect();
         for e in ends {
-            if self.circ.wires.iter().any(|w| w.interior(e)) {
+            if self.circ.wires.iter().enumerate().any(|(i, w)| keep_w.contains(&i) && w.interior(e)) {
                 *count.entry(e).or_default() += 2;
             }
         }
@@ -1921,13 +2014,16 @@ impl App {
         }
 
         // Components.
-        let hover_id = if !sim_on && self.tool == Tool::Select && matches!(self.drag, Drag::None) {
+        let hover_id = if !sim_on && !exporting && self.tool == Tool::Select && matches!(self.drag, Drag::None) {
             self.mouse_world.and_then(|w| self.hit_comp(w))
         } else {
             None
         };
         for c in &self.circ.comps {
-            let selected = self.sel.contains(&c.id);
+            if only_sel && !self.sel.contains(&c.id) {
+                continue;
+            }
+            let selected = !exporting && self.sel.contains(&c.id);
             if selected || hover_id == Some(c.id) {
                 let (x0, y0, x1, y1) = c.world_bounds();
                 let rr = Rect::from_min_max(self.to_screen(x0 - 0.4, y0 - 0.4), self.to_screen(x1 + 0.4, y1 + 0.4));
@@ -1990,8 +2086,11 @@ impl App {
                 painter.add(Shape::line(pts, Stroke::new(2.5_f32, Color32::from_rgb(230, 140, 0))));
             }
         }
+        if exporting {
+            return;
+        }
         // Phone theme: every terminal is a small grey square (SimuRelay style).
-        if th.dark && !sim_on {
+        if self.mobile && !sim_on {
             let k = (z * 0.28).clamp(2.0, 5.0);
             for c in &self.circ.comps {
                 for p in c.pins() {
@@ -2006,7 +2105,7 @@ impl App {
             }
         }
         // Open pins (edit mode): small rings so the user sees where to connect.
-        if !sim_on && !th.dark {
+        if !sim_on && !self.mobile {
             for c in &self.circ.comps {
                 for p in c.pins() {
                     if !count.contains_key(&p) {
@@ -2128,6 +2227,9 @@ impl App {
             let cmd = i.modifiers.command;
             (copy, cut, paste, i.key_pressed(Key::V) && cmd, i.key_pressed(Key::D) && cmd)
         });
+        if ctx.input(|i| i.key_pressed(Key::P) && i.modifiers.command) {
+            self.start_export(ExportScope::All, true);
+        }
         if !self.sim.running {
             if copy {
                 self.copy_selected(ctx);
@@ -2265,7 +2367,10 @@ impl App {
         }
         let events = ctx.input(|i| i.raw.events.clone());
         for e in events {
-            if let egui::Event::Screenshot { image, .. } = e {
+            if let egui::Event::Screenshot { image, user_data, .. } = e {
+                if export::is_export_shot(&user_data) {
+                    continue;
+                }
                 let [w, h] = image.size;
                 let mut bytes = Vec::with_capacity(w * h * 4);
                 for p in &image.pixels {
@@ -2304,10 +2409,22 @@ impl eframe::App for App {
         if was_mobile != self.mobile {
             self.fitted = false;
         }
-        if self.dark_applied != Some(self.mobile) {
-            setup_style(ctx, self.mobile);
-            self.dark_applied = Some(self.mobile);
+        // Light / dark: automatic follows the device on phones (dark if it doesn't
+        // say, and in picture mode), and stays light on computers.
+        self.dark = match self.theme_mode {
+            ThemeMode::Light => false,
+            ThemeMode::Dark => true,
+            ThemeMode::Auto => {
+                self.mobile
+                    && (self.shot.is_some() || ctx.system_theme().map(|t| t == egui::Theme::Dark).unwrap_or(true))
+            }
+        };
+        UI_DARK.store(self.dark, Ordering::Relaxed);
+        if self.dark_applied != Some((self.dark, self.mobile)) {
+            setup_style(ctx, self.dark, self.mobile);
+            self.dark_applied = Some((self.dark, self.mobile));
         }
+        self.export_step(ctx);
         if self.mobile {
             self.mobile_bars(ctx);
         } else {
@@ -2319,15 +2436,19 @@ impl eframe::App for App {
             self.palette(ctx);
             self.properties(ctx);
         }
-        let bg = draw::Theme::get(self.mobile).canvas;
+        let bg = draw::Theme::get(self.dark).canvas;
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(bg))
             .show(ctx, |ui| self.canvas_ui(ui));
-        if self.mobile {
-            self.mobile_overlays(ctx);
+        if self.export.is_none() {
+            if self.mobile {
+                self.mobile_overlays(ctx);
+            }
+            self.share_windows(ctx);
+            self.help_window(ctx);
+        } else {
+            ctx.request_repaint();
         }
-        self.share_windows(ctx);
-        self.help_window(ctx);
         if self.frame % 30 == 1 {
             let title = format!("SimuEletro – {}", self.title);
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
@@ -2340,9 +2461,11 @@ impl eframe::App for App {
 
 // ---------- small widgets ----------
 
-/// Light widgets on the computer, dark ones on phones (SimuRelay style).
-fn setup_style(ctx: &egui::Context, dark: bool) {
+/// Light or dark widgets; bigger text on phones.
+fn setup_style(ctx: &egui::Context, dark: bool, mobile: bool) {
+    ctx.set_theme(if dark { egui::Theme::Dark } else { egui::Theme::Light });
     ctx.set_visuals(if dark { egui::Visuals::dark() } else { egui::Visuals::light() });
+    let size = if mobile { 15.0 } else { 13.5 };
     ctx.style_mut(|s| {
         s.spacing.item_spacing = Vec2::new(8.0, 6.0);
         s.spacing.button_padding = Vec2::new(8.0, 4.0);
@@ -2358,16 +2481,41 @@ fn setup_style(ctx: &egui::Context, dark: bool) {
             s.visuals.selection.stroke = Stroke::new(1.0_f32, Color32::from_rgb(45, 212, 160));
             s.visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(40, 40, 40);
             s.visuals.widgets.inactive.bg_fill = Color32::from_rgb(40, 40, 40);
-            s.text_styles.insert(egui::TextStyle::Body, FontId::proportional(15.0));
-            s.text_styles.insert(egui::TextStyle::Button, FontId::proportional(15.0));
         } else {
             s.visuals.panel_fill = PANEL_BG;
             s.visuals.selection.bg_fill = Color32::from_rgb(210, 228, 255);
             s.visuals.selection.stroke = Stroke::new(1.0_f32, ACCENT);
-            s.text_styles.insert(egui::TextStyle::Body, FontId::proportional(13.5));
-            s.text_styles.insert(egui::TextStyle::Button, FontId::proportional(13.5));
         }
+        s.text_styles.insert(egui::TextStyle::Body, FontId::proportional(size));
+        s.text_styles.insert(egui::TextStyle::Button, FontId::proportional(size));
     });
+}
+
+/// Bars (menu, toolbar, status) background.
+fn surface(dark: bool) -> Color32 {
+    if dark {
+        Color32::from_rgb(24, 24, 24)
+    } else {
+        Color32::WHITE
+    }
+}
+
+/// Side panels background.
+fn panel_bg(dark: bool) -> Color32 {
+    if dark {
+        Color32::from_rgb(30, 30, 30)
+    } else {
+        PANEL_BG
+    }
+}
+
+/// Thin separator lines.
+fn line_col(dark: bool) -> Color32 {
+    if dark {
+        Color32::from_rgb(55, 55, 55)
+    } else {
+        Color32::from_rgb(225, 228, 234)
+    }
 }
 
 /// Secondary text colour that reads well on both themes.
@@ -2433,9 +2581,9 @@ fn palette_item(ui: &mut egui::Ui, kind: Kind, active: bool) -> bool {
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, 40.0), Sense::click());
     let p = ui.painter_at(rect);
     let bg = if active {
-        Color32::from_rgb(214, 230, 255)
+        if ui.visuals().dark_mode { Color32::from_rgb(30, 60, 100) } else { Color32::from_rgb(214, 230, 255) }
     } else if resp.hovered() {
-        Color32::from_rgb(232, 236, 243)
+        if ui.visuals().dark_mode { Color32::from_rgb(45, 45, 45) } else { Color32::from_rgb(232, 236, 243) }
     } else {
         Color32::TRANSPARENT
     };
@@ -2445,14 +2593,14 @@ fn palette_item(ui: &mut egui::Ui, kind: Kind, active: bool) -> bool {
     }
     // Symbol preview.
     let icon = Rect::from_min_size(rect.min + Vec2::new(4.0, 2.0), Vec2::new(44.0, 36.0));
-    p.rect_filled(icon, 5.0, Color32::WHITE);
-    symbol_preview(&p, icon, kind, 5.5, false);
+    p.rect_filled(icon, 5.0, if ui.visuals().dark_mode { Color32::from_rgb(28, 28, 28) } else { Color32::WHITE });
+    symbol_preview(&p, icon, kind, 5.5, ui.visuals().dark_mode);
     p.text(
         Pos2::new(icon.right() + 8.0, rect.center().y),
         Align2::LEFT_CENTER,
         kind.name(),
         FontId::proportional(13.0),
-        if ui.is_enabled() { Color32::from_rgb(40, 44, 52) } else { Color32::GRAY },
+        if ui.is_enabled() { ui.visuals().text_color() } else { Color32::GRAY },
     );
     resp.on_hover_text(kind.name()).clicked()
 }

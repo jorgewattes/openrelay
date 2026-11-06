@@ -75,7 +75,7 @@ pub fn device_active(c: &Circuit) -> HashMap<String, bool> {
             Kind::Coil => comp.st.energized,
             Kind::TimerOn | Kind::TimerOff => comp.st.out,
             Kind::Thermal3 => comp.st.on,
-            Kind::Breaker1 | Kind::Breaker3 => !comp.st.on,
+            k if k.is_breaker() => !comp.st.on,
             _ => continue,
         };
         *m.entry(comp.tag.clone()).or_insert(false) |= a;
@@ -90,7 +90,7 @@ pub fn actuated(c: &Comp, act: &HashMap<String, bool>) -> bool {
         ContactNo | ContactNc | Main3 => act.get(&c.tag).copied().unwrap_or(false),
         PushNo | PushNc => c.st.pressed,
         Switch | EStop | LimitNo | LimitNc => c.st.on,
-        Breaker1 | Breaker3 | Thermal3 => c.st.on,
+        Breaker1 | Breaker2 | Breaker3 | Rcd2 | Rcd4 | Thermal3 => c.st.on,
         _ => false,
     }
 }
@@ -98,13 +98,17 @@ pub fn actuated(c: &Comp, act: &HashMap<String, bool>) -> bool {
 fn closed_pairs(c: &Comp, act: &HashMap<String, bool>) -> &'static [(usize, usize)] {
     use Kind::*;
     const ONE: &[(usize, usize)] = &[(0, 1)];
+    const TWO: &[(usize, usize)] = &[(0, 2), (1, 3)];
     const THREE: &[(usize, usize)] = &[(0, 3), (1, 4), (2, 5)];
+    const FOUR: &[(usize, usize)] = &[(0, 4), (1, 5), (2, 6), (3, 7)];
     const NONE: &[(usize, usize)] = &[];
     let a = actuated(c, act);
     match c.kind {
         Fuse => ONE,
         Breaker1 => if a { NONE } else { ONE },
+        Breaker2 | Rcd2 => if a { NONE } else { TWO },
         Breaker3 => if a { NONE } else { THREE },
+        Rcd4 => if a { NONE } else { FOUR },
         Thermal3 => THREE,
         Main3 => if a { THREE } else { NONE },
         PushNo | Switch | LimitNo | ContactNo => if a { ONE } else { NONE },
@@ -277,6 +281,8 @@ pub struct Sim {
     pub nets: Nets,
     pub time: f32,
     pub fault: Option<String>,
+    /// Last RCD trip, shown until the simulation restarts.
+    pub rcd_msg: Option<String>,
 }
 
 impl Sim {
@@ -286,6 +292,7 @@ impl Sim {
         self.paused = false;
         self.time = 0.0;
         self.fault = None;
+        self.rcd_msg = None;
         self.step(circ, 0.0);
     }
 
@@ -294,6 +301,7 @@ impl Sim {
         self.running = false;
         self.paused = false;
         self.fault = None;
+        self.rcd_msg = None;
         self.nets = Nets::default();
     }
 
@@ -498,6 +506,42 @@ impl Sim {
                 c.st.angle += dt * speed * c.st.motor as f32;
             }
         }
+        // DR (residual-current device): trips when a load fed through it leaks to
+        // earth (one side on a live output of the DR, the other on PE).
+        let nets = &self.nets;
+        let mut trips: Vec<(usize, String, String)> = vec![];
+        for (ri, r) in circ.comps.iter().enumerate() {
+            if !matches!(r.kind, Kind::Rcd2 | Kind::Rcd4) || r.st.on {
+                continue;
+            }
+            let n = r.kind.poles();
+            let outs: Vec<P> = (n..2 * n).map(|i| r.pin(i)).collect();
+            for l in &circ.comps {
+                let pins: Vec<P> = match l.kind {
+                    Kind::Lamp | Kind::Buzzer | Kind::Coil | Kind::TimerOn | Kind::TimerOff | Kind::Motor1 => l.pins(),
+                    Kind::Motor3 => l.pins()[..3].to_vec(),
+                    Kind::Motor6 => l.pins()[..6].to_vec(),
+                    _ => continue,
+                };
+                let earth = pins.iter().any(|p| matches!(nets.src_at(*p), Some((Pot::PE, _))));
+                let live = pins.iter().any(|p| {
+                    outs.iter().any(|o| nets.same(*p, *o))
+                        && nets.src_at(*p).is_some_and(|(pot, _)| pot.is_phase() || pot == Pot::P24)
+                });
+                if earth && live {
+                    trips.push((ri, r.tag.clone(), l.tag.clone()));
+                    break;
+                }
+            }
+        }
+        for (ri, dr, load) in trips {
+            circ.comps[ri].st.on = true;
+            self.rcd_msg = Some(format!(
+                "{} {dr}: {} {load}.",
+                t("O DR desarmou", "The RCD tripped"),
+                t("fuga de corrente para a terra em", "earth leakage at")
+            ));
+        }
         if let Some((a, b)) = self.nets.short_pair {
             self.fault = Some(format!(
                 "{} {} – {}. {}",
@@ -507,7 +551,7 @@ impl Sim {
                 t("Pare a simulação e corrija a ligação.", "Stop the simulation and fix the wiring.")
             ));
         } else {
-            self.fault = None;
+            self.fault = self.rcd_msg.clone();
         }
     }
 }
@@ -715,5 +759,56 @@ mod tests {
         let mut c = motor6(true, 1);
         s.start(&mut c);
         assert_eq!(get(&c, Kind::Motor6, "M1").st.vstat, 0);
+    }
+    #[test]
+    fn star_delta_switches_after_delay() {
+        let mut c = examples::star_delta();
+        let mut s = Sim::default();
+        s.start(&mut c);
+        assert!(s.fault.is_none(), "{:?}", s.fault);
+        press(&mut c, "S1", true);
+        s.step(&mut c, 0.02);
+        press(&mut c, "S1", false);
+        s.step(&mut c, 0.02);
+        assert!(get(&c, Kind::Coil, "KM1").st.energized);
+        assert!(get(&c, Kind::Coil, "KM2").st.energized, "star first");
+        assert!(!get(&c, Kind::Coil, "KM3").st.energized);
+        let m = get(&c, Kind::Motor6, "M1");
+        assert_eq!((m.st.motor != 0, m.st.conn), (true, 1), "runs in star");
+        assert_eq!(m.st.vstat, -1, "reduced voltage in star");
+        for _ in 0..300 {
+            s.step(&mut c, 0.02);
+        }
+        assert!(!get(&c, Kind::Coil, "KM2").st.energized);
+        assert!(get(&c, Kind::Coil, "KM3").st.energized, "then delta");
+        let m = get(&c, Kind::Motor6, "M1");
+        assert_eq!((m.st.motor != 0, m.st.conn, m.st.vstat), (true, 2, 0));
+        assert!(s.fault.is_none(), "{:?}", s.fault);
+        // Stop.
+        press(&mut c, "S0", true);
+        s.step(&mut c, 0.02);
+        assert!(!get(&c, Kind::Coil, "KM1").st.energized);
+        assert_eq!(get(&c, Kind::Motor6, "M1").st.motor, 0);
+    }
+
+    #[test]
+    fn rcd_trips_on_earth_leak() {
+        let mut c = Circuit::default();
+        c.add(Kind::TermL1, (0, 0).into(), 0, "");
+        c.add(Kind::TermN, (3, 0).into(), 0, "");
+        c.add(Kind::Rcd2, (0, 2).into(), 0, "DR1");
+        c.wire((0, 0), (0, 2));
+        c.wire((3, 0), (3, 2));
+        // Lamp between the DR's phase output and earth: a leak.
+        c.add(Kind::Lamp, (0, 10).into(), 0, "H1");
+        c.wire((0, 8), (0, 10));
+        c.add(Kind::TermPE, (0, 18).into(), 2, "");
+        c.wire((0, 16), (0, 18));
+        let mut s = Sim::default();
+        s.start(&mut c);
+        s.step(&mut c, 0.02);
+        let dr = c.comps.iter().find(|x| x.kind == Kind::Rcd2).unwrap();
+        assert!(dr.st.on, "DR must trip");
+        assert!(s.fault.as_deref().unwrap_or("").contains("DR1"));
     }
 }

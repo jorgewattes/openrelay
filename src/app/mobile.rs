@@ -5,11 +5,32 @@
 use super::*;
 use crate::circuit::{category_color, CATEGORY_DEFS};
 
-const BAR_BG: Color32 = Color32::from_rgb(21, 21, 21);
-const PANEL: Color32 = Color32::from_rgb(28, 28, 28);
-const PANEL_LINE: Color32 = Color32::from_rgb(58, 58, 58);
-const TEXT: Color32 = Color32::from_rgb(235, 235, 235);
-const MUTED: Color32 = Color32::from_rgb(110, 110, 110);
+// Phone colours, dark (SimuRelay style) or light, following the chosen theme.
+fn dk() -> bool {
+    UI_DARK.load(Ordering::Relaxed)
+}
+fn pick(d: (u8, u8, u8), l: (u8, u8, u8)) -> Color32 {
+    let (r, g, b) = if dk() { d } else { l };
+    Color32::from_rgb(r, g, b)
+}
+fn bar_bg() -> Color32 {
+    pick((21, 21, 21), (255, 255, 255))
+}
+fn panel() -> Color32 {
+    pick((28, 28, 28), (248, 249, 251))
+}
+fn panel_line() -> Color32 {
+    pick((58, 58, 58), (214, 219, 226))
+}
+fn text_col() -> Color32 {
+    pick((235, 235, 235), (32, 36, 44))
+}
+fn muted() -> Color32 {
+    pick((110, 110, 110), (160, 166, 176))
+}
+fn hover() -> Color32 {
+    pick((40, 40, 40), (232, 236, 242))
+}
 const GREEN: Color32 = Color32::from_rgb(30, 158, 87);
 const RED: Color32 = Color32::from_rgb(235, 70, 60);
 
@@ -30,9 +51,9 @@ impl App {
             .exact_height(60.0)
             .frame(
                 egui::Frame::new()
-                    .fill(BAR_BG)
+                    .fill(bar_bg())
                     .inner_margin(Margin::symmetric(2, 4))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(52, 52, 52))),
+                    .stroke(Stroke::new(1.0_f32, panel_line())),
             )
             .show(ctx, |ui| self.top_bar(ui));
 
@@ -43,10 +64,10 @@ impl App {
                 .resizable(false)
                 .frame(
                     egui::Frame::new()
-                        .fill(PANEL)
+                        .fill(panel())
                         .inner_margin(Margin { left: 12, right: 12, top: 6, bottom: 10 })
                         .corner_radius(CornerRadius { nw: 14, ne: 14, sw: 0, se: 0 })
-                        .stroke(Stroke::new(1.0_f32, PANEL_LINE)),
+                        .stroke(Stroke::new(1.0_f32, panel_line())),
                 )
                 .show(ctx, |ui| self.sheet_ui(ui));
         }
@@ -104,7 +125,7 @@ impl App {
                         if gap > 6.0 {
                             ui.painter().line_segment(
                                 [Pos2::new(r.right() - 1.0, r.top() + 8.0), Pos2::new(r.right() - 1.0, r.bottom() - 8.0)],
-                                Stroke::new(1.0_f32, Color32::from_rgb(60, 60, 60)),
+                                Stroke::new(1.0_f32, panel_line()),
                             );
                         }
                     }
@@ -190,7 +211,7 @@ impl App {
         ui.painter().rect_filled(
             Rect::from_center_size(hr.center(), Vec2::new(40.0, 4.0)),
             2.0,
-            Color32::from_rgb(80, 80, 80),
+            muted(),
         );
         let title = match self.sheet {
             Sheet::Props if self.sim.running => t("Estado da simulação", "Simulation status"),
@@ -199,7 +220,7 @@ impl App {
             _ => "Menu",
         };
         ui.horizontal(|ui| {
-            ui.label(RichText::new(title).strong().size(16.0).color(TEXT));
+            ui.label(RichText::new(title).strong().size(16.0).color(text_col()));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if ui.add(egui::Button::new(RichText::new("✖").size(16.0)).min_size(Vec2::splat(36.0))).clicked() {
                     self.sheet = Sheet::None;
@@ -226,10 +247,16 @@ impl App {
             self.open_share();
             self.sheet = Sheet::None;
         }
-        if item(ui, format!("📥  {}", t("Abrir circuito de um link", "Open circuit from a link"))) {
-            self.link_input = Some(String::new());
-            self.link_msg.clear();
-            self.sheet = Sheet::None;
+        if item(ui, format!("🖼  {}", t("Exportar imagem (tudo)", "Export image (all)"))) {
+            self.start_export(ExportScope::All, false);
+        }
+        if !self.sel.is_empty() || !self.sel_w.is_empty() {
+            if item(ui, format!("🖼  {}", t("Exportar imagem (seleção)", "Export image (selection)"))) {
+                self.start_export(ExportScope::Selection, false);
+            }
+        }
+        if item(ui, format!("🖨  {}", t("Imprimir / salvar em PDF", "Print / save as PDF"))) {
+            self.start_export(ExportScope::All, true);
         }
         if item(ui, format!("📄  {}", t("Novo circuito", "New circuit"))) {
             self.new_file();
@@ -245,7 +272,7 @@ impl App {
             }
         }
         ui.add_space(6.0);
-        ui.label(RichText::new(t("Exemplos", "Examples")).strong().color(TEXT));
+        ui.label(RichText::new(t("Exemplos", "Examples")).strong().color(text_col()));
         for (name, f) in examples::list() {
             if item(ui, format!("⚡  {name}")) {
                 self.load_circuit(f(), name);
@@ -278,6 +305,12 @@ impl App {
         ui.add_space(6.0);
         ui.checkbox(&mut self.numbers, t("Numeração dos bornes", "Terminal numbers"));
         ui.checkbox(&mut self.grid, t("Grade", "Grid"));
+        ui.horizontal_wrapped(|ui| {
+            ui.label(t("Tema", "Theme"));
+            ui.radio_value(&mut self.theme_mode, ThemeMode::Auto, t("Automático (do aparelho)", "Automatic (device)"));
+            ui.radio_value(&mut self.theme_mode, ThemeMode::Light, t("Claro", "Light"));
+            ui.radio_value(&mut self.theme_mode, ThemeMode::Dark, t("Escuro", "Dark"));
+        });
         let mut en = EN.load(Ordering::Relaxed);
         ui.horizontal(|ui| {
             ui.label(t("Idioma", "Language"));
@@ -294,7 +327,7 @@ impl App {
                 "Tip: in Select mode, drag from a terminal (small square) to another to draw a wire.",
             ))
             .small()
-            .color(Color32::from_rgb(170, 170, 170)),
+            .color(subtle(ui)),
         );
     }
 
@@ -310,8 +343,8 @@ impl App {
                 .order(egui::Order::Foreground)
                 .show(ctx, |ui| {
                     egui::Frame::new()
-                        .fill(PANEL)
-                        .stroke(Stroke::new(1.0_f32, PANEL_LINE))
+                        .fill(panel())
+                        .stroke(Stroke::new(1.0_f32, panel_line()))
                         .corner_radius(CornerRadius::same(4))
                         .inner_margin(Margin::same(10))
                         .shadow(egui::Shadow { offset: [0, 4], blur: 16, spread: 0, color: Color32::from_black_alpha(140) })
@@ -328,8 +361,8 @@ impl App {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 egui::Frame::new()
-                    .fill(PANEL)
-                    .stroke(Stroke::new(1.0_f32, PANEL_LINE))
+                    .fill(panel())
+                    .stroke(Stroke::new(1.0_f32, panel_line()))
                     .corner_radius(CornerRadius::same(4))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
@@ -341,7 +374,7 @@ impl App {
                             let (r, _) = ui.allocate_exact_size(Vec2::new(1.0, 44.0), Sense::hover());
                             ui.painter().line_segment(
                                 [Pos2::new(r.center().x, r.top() + 10.0), Pos2::new(r.center().x, r.bottom() - 10.0)],
-                                Stroke::new(1.0_f32, PANEL_LINE),
+                                Stroke::new(1.0_f32, panel_line()),
                             );
                             if zoom_btn(ui, "+") {
                                 self.zoom_at(1.25, c);
@@ -362,7 +395,7 @@ impl App {
         let (r, resp) = ui.allocate_exact_size(Vec2::new(w, 40.0), Sense::click());
         let p = ui.painter();
         cat_square(p, Pos2::new(r.left() + 14.0, r.center().y), col);
-        p.text(Pos2::new(r.left() + 34.0, r.center().y), Align2::LEFT_CENTER, name, FontId::proportional(18.0), TEXT);
+        p.text(Pos2::new(r.left() + 34.0, r.center().y), Align2::LEFT_CENTER, name, FontId::proportional(18.0), text_col());
         // Drop-down arrow.
         let c = Pos2::new(r.right() - 14.0, r.center().y);
         let k = 6.0;
@@ -371,10 +404,10 @@ impl App {
         } else {
             vec![c + Vec2::new(-k, -k * 0.5), c + Vec2::new(k, -k * 0.5), c + Vec2::new(0.0, k * 0.5)]
         };
-        p.add(Shape::convex_polygon(tri, Color32::from_rgb(190, 190, 190), Stroke::NONE));
+        p.add(Shape::convex_polygon(tri, muted(), Stroke::NONE));
         p.line_segment(
             [Pos2::new(r.left(), r.bottom()), Pos2::new(r.right(), r.bottom())],
-            Stroke::new(1.0_f32, Color32::from_rgb(80, 80, 80)),
+            Stroke::new(1.0_f32, muted()),
         );
         if resp.clicked() {
             self.cat_list_open = !self.cat_list_open;
@@ -389,7 +422,7 @@ impl App {
                 for (i, (n, c)) in rows.into_iter().enumerate() {
                     let (r, resp) = ui.allocate_exact_size(Vec2::new(w, 48.0), Sense::click());
                     if resp.hovered() || i == self.parts_cat {
-                        ui.painter().rect_filled(r, 4.0, Color32::from_rgb(40, 40, 40));
+                        ui.painter().rect_filled(r, 4.0, hover());
                     }
                     cat_square(ui.painter(), Pos2::new(r.left() + 14.0, r.center().y), c);
                     ui.painter().text(
@@ -397,7 +430,7 @@ impl App {
                         Align2::LEFT_CENTER,
                         n,
                         FontId::proportional(18.0),
-                        TEXT,
+                        text_col(),
                     );
                     if resp.clicked() {
                         pick = Some(i);
@@ -461,11 +494,11 @@ impl App {
         };
         let r = self.canvas;
         let max_w = (r.width() - 140.0).max(120.0);
-        let g = painter.layout(text, FontId::proportional(12.5), TEXT, max_w);
+        let g = painter.layout(text, FontId::proportional(12.5), text_col(), max_w);
         let size = g.size() + Vec2::new(20.0, 10.0);
         let pos = Pos2::new(r.left() + 10.0, r.bottom() - size.y - 12.0);
-        painter.rect_filled(Rect::from_min_size(pos, size), 4.0, Color32::from_rgba_unmultiplied(40, 40, 40, 230));
-        painter.galley(pos + Vec2::new(10.0, 5.0), g, TEXT);
+        painter.rect_filled(Rect::from_min_size(pos, size), 4.0, if dk() { Color32::from_rgba_unmultiplied(40, 40, 40, 230) } else { Color32::from_rgba_unmultiplied(255, 255, 255, 235) });
+        painter.galley(pos + Vec2::new(10.0, 5.0), g, text_col());
     }
 }
 
@@ -477,13 +510,14 @@ fn bar_btn(ui: &mut egui::Ui, w: f32, icon: &str, label: &str, st: BtnState) -> 
     if st == BtnState::Active {
         p.rect_filled(rect, 0.0, GREEN);
     } else if resp.is_pointer_button_down_on() {
-        p.rect_filled(rect, 0.0, Color32::from_rgb(40, 40, 40));
+        p.rect_filled(rect, 0.0, hover());
     }
     let (icol, tcol) = match st {
-        BtnState::Disabled => (MUTED, MUTED),
-        BtnState::Danger => (RED, TEXT),
-        BtnState::Go => (Color32::from_rgb(40, 200, 100), TEXT),
-        _ => (TEXT, TEXT),
+        BtnState::Disabled => (muted(), muted()),
+        BtnState::Active => (Color32::WHITE, Color32::WHITE),
+        BtnState::Danger => (RED, text_col()),
+        BtnState::Go => (GREEN, text_col()),
+        _ => (text_col(), text_col()),
     };
     p.text(rect.center() - Vec2::new(0.0, 9.0), Align2::CENTER_CENTER, icon, FontId::proportional(19.0), icol);
     p.text(
@@ -499,9 +533,9 @@ fn bar_btn(ui: &mut egui::Ui, w: f32, icon: &str, label: &str, st: BtnState) -> 
 fn zoom_btn(ui: &mut egui::Ui, s: &str) -> bool {
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(54.0, 44.0), Sense::click());
     if resp.is_pointer_button_down_on() {
-        ui.painter().rect_filled(rect, 4.0, Color32::from_rgb(45, 45, 45));
+        ui.painter().rect_filled(rect, 4.0, hover());
     }
-    ui.painter().text(rect.center(), Align2::CENTER_CENTER, s, FontId::proportional(24.0), TEXT);
+    ui.painter().text(rect.center(), Align2::CENTER_CENTER, s, FontId::proportional(24.0), text_col());
     resp.clicked()
 }
 
@@ -515,12 +549,12 @@ fn lib_tile(ui: &mut egui::Ui, kind: Kind, w: f32, active: bool) -> bool {
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, 70.0), Sense::click());
     let p = ui.painter_at(rect);
     if active {
-        p.rect_filled(rect, 3.0, Color32::from_rgb(30, 70, 50));
+        p.rect_filled(rect, 3.0, pick((30, 70, 50), (210, 240, 222)));
     } else if resp.is_pointer_button_down_on() || resp.hovered() {
-        p.rect_filled(rect, 3.0, Color32::from_rgb(38, 38, 38));
+        p.rect_filled(rect, 3.0, hover());
     }
     let icon = Rect::from_min_max(rect.min + Vec2::new(4.0, 4.0), Pos2::new(rect.right() - 4.0, rect.bottom() - 10.0));
-    symbol_preview(&p, icon, kind, 6.5, true);
+    symbol_preview(&p, icon, kind, 6.5, dk());
     let [r, g, b] = category_color(kind);
     p.line_segment(
         [Pos2::new(rect.left() + 2.0, rect.bottom() - 3.0), Pos2::new(rect.right() - 2.0, rect.bottom() - 3.0)],
