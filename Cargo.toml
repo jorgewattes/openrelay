@@ -1,0 +1,31 @@
+[package]
+name = "simueletro"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "simueletro"
+path = "src/main.rs"
+
+[dependencies]
+eframe = "0.32"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rfd = "0.15"
+
+# Web (GitHub Pages) build.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlCanvasElement", "HtmlElement"] }
+
+[profile.release]
+opt-level = 2
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2

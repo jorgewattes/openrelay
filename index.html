@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="SimuEletro: simulador de comandos elétricos no navegador, no computador e no celular." />
+    <title>SimuEletro – simulador de comandos elétricos</title>
+    <link data-trunk rel="rust" data-bin="simueletro" />
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #d6dbe2;
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            touch-action: none;
+        }
+        #simueletro_canvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        #loading {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #1c2026;
+            gap: 12px;
+        }
+        .spinner {
+            width: 36px;
+            height: 36px;
+            border: 4px solid #b9c1cc;
+            border-top-color: #006ee6;
+            border-radius: 50%;
+            animation: spin 0.9s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <canvas id="simueletro_canvas"></canvas>
+    <div id="loading">
+        <div class="spinner"></div>
+        <div>Carregando o SimuEletro…</div>
+    </div>
+</body>
+</html>
