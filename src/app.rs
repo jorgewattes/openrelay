@@ -1,7 +1,7 @@
 //! Main window: menus, toolbar, parts palette, drawing sheet, properties.
 
 use crate::circuit::{categories, t, Circuit, Comp, Kind, Wire, EN, LAMP_COLORS, P};
-use crate::draw::{self, DrawCtx, Xf, DEAD, INK, SELECT};
+use crate::draw::{self, DrawCtx, Xf, DEAD};
 use crate::examples;
 use crate::sim::{self, Sim};
 use eframe::egui::{
@@ -32,15 +32,19 @@ enum Drag {
     Move { last: P, pushed: bool },
     Rubber { start: Pos2 },
     Pan,
+    /// Dragging a new wire out of a terminal.
+    WireFrom { start: P },
 }
+
+mod mobile;
 
 /// Bottom sheets used by the phone layout.
 #[derive(Clone, Copy, PartialEq)]
 enum Sheet {
     None,
-    Parts,
     Props,
     Menu,
+    More,
 }
 
 struct Shot {
@@ -78,12 +82,24 @@ pub struct App {
     /// Phone layout active this frame (narrow screen or forced).
     mobile: bool,
     sheet: Sheet,
+    /// Library category on phones: 0 = all, n = CATEGORY_DEFS[n-1].
     parts_cat: usize,
+    /// Phone parts library open.
+    lib_open: bool,
+    /// Phone library showing its category list.
+    cat_list_open: bool,
+    /// Share dialog with the generated link.
+    share_link: Option<String>,
+    /// "Open from link" dialog text.
+    link_input: Option<String>,
+    link_msg: String,
+    /// Visual theme currently applied to the widgets (dark = phone).
+    dark_applied: Option<bool>,
 }
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, shot: Option<PathBuf>, force_mobile: bool) -> Self {
-        setup_style(&cc.egui_ctx);
+        setup_style(&cc.egui_ctx, force_mobile);
         let mut app = App {
             circ: examples::direct_start(),
             sim: Sim::default(),
@@ -113,14 +129,36 @@ impl App {
             mobile: force_mobile,
             sheet: Sheet::None,
             parts_cat: 0,
+            lib_open: false,
+            cat_list_open: false,
+            share_link: None,
+            link_input: None,
+            link_msg: String::new(),
+            dark_applied: None,
         };
-        // Preview helper for pictures: SIMU_SHEET=parts opens the parts sheet.
-        let preview_sheet = std::env::var("SIMU_SHEET").unwrap_or_default();
-        if preview_sheet == "parts" {
-            app.sheet = Sheet::Parts;
-            app.parts_cat = 3;
-        } else if app.shot.is_some() {
-            app.sim.start(&mut app.circ);
+        // Preview helper for pictures: SIMU_SHEET=library|categories|selected.
+        let preview = std::env::var("SIMU_SHEET").unwrap_or_default();
+        match preview.as_str() {
+            "library" => app.lib_open = true,
+            "share" => app.open_share(),
+            "categories" => {
+                app.lib_open = true;
+                app.cat_list_open = true;
+            }
+            "selected" => {
+                if let Some(c) = app.circ.comps.iter().find(|c| c.kind == Kind::Motor3) {
+                    app.sel.insert(c.id);
+                }
+            }
+            _ => {
+                if app.shot.is_some() {
+                    app.sim.start(&mut app.circ);
+                }
+            }
+        }
+        // `SIMU_LINK=<link>` opens a shared circuit (desktop check of share links).
+        if let Some(c) = std::env::var("SIMU_LINK").ok().and_then(|l| crate::share::decode_from_url(&l)) {
+            app.open_shared(c);
         }
         app
     }
@@ -446,6 +484,14 @@ impl App {
                             self.save_file(true);
                         }
                         ui.separator();
+                        if ui.button(t("🔗 Compartilhar link…", "🔗 Share link…")).clicked() {
+                            self.open_share();
+                        }
+                        if ui.button(t("📥 Abrir circuito de um link…", "📥 Open circuit from a link…")).clicked() {
+                            self.link_input = Some(String::new());
+                            self.link_msg.clear();
+                        }
+                        ui.separator();
                         ui.menu_button(t("Exemplos", "Examples"), |ui| {
                             for (name, f) in examples::list() {
                                 if ui.button(name).clicked() {
@@ -520,6 +566,164 @@ impl App {
             });
     }
 
+    /// Terminal (component pin) under the pointer, if any.
+    fn pin_near(&self, w: (f32, f32)) -> Option<P> {
+        let tol = if self.mobile { 0.9 } else { 0.45 };
+        let mut best: Option<(f32, P)> = None;
+        for c in &self.circ.comps {
+            for p in c.pins() {
+                let d = ((p.x as f32 - w.0).powi(2) + (p.y as f32 - w.1).powi(2)).sqrt();
+                if d <= tol && best.is_none_or(|(bd, _)| d < bd) {
+                    best = Some((d, p));
+                }
+            }
+        }
+        best.map(|(_, p)| p)
+    }
+
+    /// Copy the selected parts (and wires) a little down-right.
+    fn duplicate_selected(&mut self) {
+        if self.sel.is_empty() && self.sel_w.is_empty() {
+            return;
+        }
+        self.push_undo();
+        let d = P::new(4, 4);
+        let picked: Vec<Comp> = self.circ.comps.iter().filter(|c| self.sel.contains(&c.id)).cloned().collect();
+        let wires: Vec<Wire> = self
+            .sel_w
+            .iter()
+            .filter_map(|&i| self.circ.wires.get(i).cloned())
+            .collect();
+        self.clear_sel();
+        for c in picked {
+            // Devices get a fresh tag; contacts keep following the same device.
+            let tag = if c.kind.is_linked() || c.kind.is_terminal() { c.tag.clone() } else { self.circ.next_tag(c.kind) };
+            let id = self.circ.add(c.kind, c.pos + d, c.rot, &tag);
+            if let Some(n) = self.circ.comp_mut(id) {
+                n.preset = c.preset;
+                n.color = c.color;
+            }
+            self.sel.insert(id);
+        }
+        for w in wires {
+            self.circ.wires.push(Wire { a: w.a + d, b: w.b + d });
+            self.sel_w.insert(self.circ.wires.len() - 1);
+        }
+    }
+
+    /// Address used for share links: the page itself on the web, the public site elsewhere.
+    fn share_base() -> String {
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Some(h) = web_sys::window().and_then(|w| w.location().href().ok()) {
+                return h;
+            }
+        }
+        crate::share::PUBLIC_URL.to_string()
+    }
+
+    fn open_share(&mut self) {
+        self.share_link = Some(crate::share::link(&self.circ, &Self::share_base()));
+        self.link_msg.clear();
+    }
+
+    /// Load a circuit received through a share link (a copy: the link never changes).
+    pub fn open_shared(&mut self, c: Circuit) {
+        self.load_circuit(c, t("Circuito compartilhado", "Shared circuit"));
+        self.status = t(
+            "Circuito aberto a partir de um link. Suas alterações não mudam o link original.",
+            "Circuit opened from a link. Your changes don't alter the original link.",
+        )
+        .into();
+    }
+
+    fn share_windows(&mut self, ctx: &egui::Context) {
+        let width = (ctx.screen_rect().width() - 32.0).clamp(260.0, 460.0);
+        if let Some(link) = self.share_link.clone() {
+            let mut open = true;
+            egui::Window::new(format!("🔗 {}", t("Compartilhar circuito", "Share circuit")))
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+                .fixed_size(Vec2::new(width, 0.0))
+                .show(ctx, |ui| {
+                    ui.label(t(
+                        "O circuito inteiro vai dentro deste link. Quem abrir recebe uma cópia para simular e alterar; o link original continua igual.",
+                        "The whole circuit travels inside this link. Whoever opens it gets a copy to simulate and edit; the original link never changes.",
+                    ));
+                    ui.add_space(4.0);
+                    let mut shown = link.clone();
+                    ui.add(
+                        egui::TextEdit::multiline(&mut shown)
+                            .desired_rows(4)
+                            .desired_width(f32::INFINITY)
+                            .font(egui::TextStyle::Monospace),
+                    );
+                    ui.label(
+                        RichText::new(format!("{} {}", link.len(), t("caracteres", "characters")))
+                            .small()
+                            .color(subtle(ui)),
+                    );
+                    ui.horizontal(|ui| {
+                        if ui.button(format!("📋 {}", t("Copiar link", "Copy link"))).clicked() {
+                            ui.ctx().copy_text(link.clone());
+                            self.link_msg = t("Link copiado! Cole no WhatsApp, e-mail…", "Link copied! Paste it anywhere.").into();
+                        }
+                        if ui.button(format!("🌐 {}", t("Abrir", "Open"))).clicked() {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(link.clone()));
+                        }
+                    });
+                    if !self.link_msg.is_empty() {
+                        ui.label(RichText::new(&self.link_msg).color(Color32::from_rgb(25, 170, 90)));
+                    }
+                });
+            if !open {
+                self.share_link = None;
+                self.link_msg.clear();
+            }
+        }
+        if let Some(mut input) = self.link_input.take() {
+            let mut open = true;
+            let mut loaded = None;
+            egui::Window::new(format!("📥 {}", t("Abrir circuito de um link", "Open circuit from a link")))
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+                .fixed_size(Vec2::new(width, 0.0))
+                .show(ctx, |ui| {
+                    ui.label(t("Cole aqui o link recebido:", "Paste the link you received:"));
+                    ui.add(
+                        egui::TextEdit::multiline(&mut input)
+                            .desired_rows(3)
+                            .desired_width(f32::INFINITY)
+                            .hint_text("https://…/simueletro/?c=…"),
+                    );
+                    if ui.button(t("Abrir circuito", "Open circuit")).clicked() {
+                        match crate::share::decode_from_url(input.trim()) {
+                            Some(c) => loaded = Some(c),
+                            None => {
+                                self.link_msg =
+                                    t("Link inválido ou incompleto.", "Invalid or incomplete link.").into()
+                            }
+                        }
+                    }
+                    if !self.link_msg.is_empty() {
+                        ui.label(RichText::new(&self.link_msg).color(Color32::from_rgb(220, 70, 60)));
+                    }
+                });
+            if let Some(c) = loaded {
+                self.link_msg.clear();
+                self.open_shared(c);
+            } else if open {
+                self.link_input = Some(input);
+            } else {
+                self.link_msg.clear();
+            }
+        }
+    }
+
     fn select_all(&mut self) {
         if self.sim.running {
             return;
@@ -548,6 +752,9 @@ impl App {
                     }
                     if tb(ui, "💾", t("Salvar", "Save"), true) {
                         self.save_file(false);
+                    }
+                    if tb(ui, "🔗", t("Compartilhar link do circuito", "Share circuit link"), true) {
+                        self.open_share();
                     }
                     ui.separator();
                     if tb(ui, "⟲", t("Desfazer", "Undo"), edit && !self.undo.is_empty()) {
@@ -831,7 +1038,7 @@ impl App {
                         "Nada selecionado. Escolha um componente à esquerda e clique na folha, ou use a ferramenta Fio para ligar os bornes.",
                         "Nothing selected. Pick a component on the left and click the sheet, or use the Wire tool to connect terminals.",
                     ))
-                    .color(Color32::from_rgb(90, 96, 110)),
+                    .color(subtle(ui)),
                 );
             });
         }
@@ -882,7 +1089,7 @@ impl App {
                     "Click push buttons (hold), switches, limit switches, breakers and overload relays to operate them.",
                 ))
                 .small()
-                .color(Color32::from_rgb(90, 96, 110)),
+                .color(subtle(ui)),
             );
         });
         ui.add_space(6.0);
@@ -1147,7 +1354,11 @@ impl App {
                 }
             }
             Tool::Select => {
-                if pressed && hovered {
+                let pin = if pressed && hovered && !shift { self.pin_near(self.to_world(pos)) } else { None };
+                if let Some(p) = pin {
+                    // Drag out of a terminal draws a wire (handy on touch screens).
+                    self.drag = Drag::WireFrom { start: p };
+                } else if pressed && hovered {
                     let w = self.to_world(pos);
                     if let Some(id) = self.hit_comp(w) {
                         if shift {
@@ -1217,6 +1428,24 @@ impl App {
                         self.drag = Drag::None;
                         self.cleanup_wires();
                     }
+                    Drag::WireFrom { start } if !down || released => {
+                        let end = self.snap(pos);
+                        if end != start {
+                            self.push_undo();
+                            for (a, b) in Self::route(start, end) {
+                                self.circ.wires.push(Wire { a, b });
+                            }
+                            self.status = t("Fio ligado.", "Wire added.").into();
+                        } else {
+                            // A plain tap on a terminal selects its component.
+                            let w = self.to_world(pos);
+                            if let Some(id) = self.hit_comp(w) {
+                                self.clear_sel();
+                                self.sel.insert(id);
+                            }
+                        }
+                        self.drag = Drag::None;
+                    }
                     _ => {}
                 }
             }
@@ -1230,8 +1459,49 @@ impl App {
         P::new((wx - cx).round() as i32, (wy - cy).round() as i32)
     }
 
-    fn paint(&mut self, painter: &egui::Painter) {
+    /// Dark endless grid used on phones (SimuRelay style).
+    fn paint_dark_grid(&self, painter: &egui::Painter, th: &draw::Theme) {
         let r = self.canvas;
+        painter.rect_filled(r, 0.0, th.canvas);
+        if !self.grid {
+            return;
+        }
+        let z = self.zoom;
+        let step = if z >= 8.0 { 1 } else if z >= 4.0 { 2 } else { 5 };
+        let (ax, ay) = self.to_world(r.min);
+        let (bx, by) = self.to_world(r.max);
+        let line = |painter: &egui::Painter, a: Pos2, b: Pos2, major: bool| {
+            let col = if major { th.grid_major } else { th.grid };
+            painter.line_segment([a, b], Stroke::new(1.0_f32, col));
+        };
+        let mut x = (ax.floor() as i32).div_euclid(step) * step;
+        while (x as f32) <= bx {
+            let sx = self.to_screen(x as f32, 0.0).x;
+            line(painter, Pos2::new(sx, r.top()), Pos2::new(sx, r.bottom()), x % 10 == 0);
+            x += step;
+        }
+        let mut y = (ay.floor() as i32).div_euclid(step) * step;
+        while (y as f32) <= by {
+            let sy = self.to_screen(0.0, y as f32).y;
+            line(painter, Pos2::new(r.left(), sy), Pos2::new(r.right(), sy), y % 10 == 0);
+            y += step;
+        }
+    }
+
+    fn paint(&mut self, painter: &egui::Painter) {
+        let th = draw::Theme::get(self.mobile);
+        if th.dark {
+            self.paint_dark_grid(painter, &th);
+        } else {
+            self.paint_sheet(painter);
+        }
+        self.paint_circuit(painter, &th);
+    }
+
+    /// Light drawing sheet with frame, columns and rows (computer layout).
+    fn paint_sheet(&self, painter: &egui::Painter) {
+        let r = self.canvas;
+        let z = self.zoom;
         painter.rect_filled(r, 0.0, DESK_BG);
         // Sheet with shadow.
         let tl = self.to_screen(0.0, 0.0);
@@ -1239,7 +1509,6 @@ impl App {
         let sheet = Rect::from_min_max(tl, br);
         painter.rect_filled(sheet.translate(Vec2::new(3.0, 4.0)), 4.0, Color32::from_black_alpha(30));
         painter.rect_filled(sheet, 2.0, Color32::WHITE);
-        let z = self.zoom;
         // Dot grid.
         if self.grid {
             let step = if z >= 7.0 { 1 } else { 2 };
@@ -1305,7 +1574,12 @@ impl App {
                 FRAME_GREEN,
             );
         }
+    }
 
+    fn paint_circuit(&mut self, painter: &egui::Painter, th: &draw::Theme) {
+        let r = self.canvas;
+        let z = self.zoom;
+        let (th_ink, th_dead, th_sel) = (th.ink, th.dead, th.select);
         let sim_on = self.sim.running;
         let time = self.sim.time;
         let flash = ((self.frame / 15) % 2) == 0;
@@ -1316,7 +1590,7 @@ impl App {
         for (i, w) in self.circ.wires.iter().enumerate() {
             let a = self.to_screen(w.a.x as f32, w.a.y as f32);
             let b = self.to_screen(w.b.x as f32, w.b.y as f32);
-            let mut col = INK;
+            let mut col = th_ink;
             let mut dashed = false;
             let mut width = ww;
             if sim_on {
@@ -1330,11 +1604,11 @@ impl App {
                             dashed = p == crate::circuit::Pot::PE;
                             width = ww * 1.25;
                         }
-                        None => col = DEAD,
+                        None => col = th_dead,
                     }
                 }
             } else if self.sel_w.contains(&i) {
-                col = SELECT;
+                col = th_sel;
                 width = ww * 1.6;
             }
             if dashed {
@@ -1365,9 +1639,9 @@ impl App {
         for (p, n) in &count {
             if *n >= 3 {
                 let col = if sim_on {
-                    self.sim.nets.pot_at(*p).map(draw::pot_color).unwrap_or(DEAD)
+                    self.sim.nets.pot_at(*p).map(draw::pot_color).unwrap_or(th_dead)
                 } else {
-                    INK
+                    th_ink
                 };
                 painter.circle_filled(self.to_screen(p.x as f32, p.y as f32), (z * 0.32).max(2.0), col);
             }
@@ -1391,7 +1665,7 @@ impl App {
                 };
                 painter.rect_filled(rr, 4.0, fill);
                 if selected {
-                    painter.rect_stroke(rr, 4.0, Stroke::new(1.0_f32, SELECT), StrokeKind::Middle);
+                    painter.rect_stroke(rr, 4.0, Stroke::new(1.0_f32, th_sel), StrokeKind::Middle);
                 }
             }
             let pin_col: Vec<Option<Color32>> = if sim_on {
@@ -1401,7 +1675,7 @@ impl App {
                         if self.sim.nets.shorted(*p) {
                             Some(Color32::from_rgb(255, 120, 0))
                         } else {
-                            Some(self.sim.nets.pot_at(*p).map(draw::pot_color).unwrap_or(DEAD))
+                            Some(self.sim.nets.pot_at(*p).map(draw::pot_color).unwrap_or(th_dead))
                         }
                     })
                     .collect()
@@ -1413,7 +1687,7 @@ impl App {
                 _ => sim::actuated(c, &act),
             };
             let cx = DrawCtx {
-                ink: if selected { SELECT } else { INK },
+                ink: if selected { th_sel } else { th_ink },
                 act: act_c,
                 linked: if c.kind.is_linked() { self.circ.device_kind(&c.tag) } else { None },
                 pin_col,
@@ -1421,6 +1695,10 @@ impl App {
                 time,
                 numbers: self.numbers,
                 tag: true,
+                paper: th.paper,
+                num: if selected { th_sel } else { th.num },
+                tag_col: if selected { th_sel } else { th.tag },
+                dark: th.dark,
             };
             let xf = Xf { o: self.to_screen(c.pos.x as f32, c.pos.y as f32), s: z, r: c.rot };
             draw::draw_comp(painter, xf, c, &cx);
@@ -1439,8 +1717,23 @@ impl App {
                 painter.add(Shape::line(pts, Stroke::new(2.5_f32, Color32::from_rgb(230, 140, 0))));
             }
         }
+        // Phone theme: every terminal is a small grey square (SimuRelay style).
+        if th.dark && !sim_on {
+            let k = (z * 0.28).clamp(2.0, 5.0);
+            for c in &self.circ.comps {
+                for p in c.pins() {
+                    let open = !count.contains_key(&p);
+                    let col = if open { Color32::from_rgb(230, 140, 60) } else { Color32::from_rgb(140, 140, 140) };
+                    painter.rect_filled(
+                        Rect::from_center_size(self.to_screen(p.x as f32, p.y as f32), Vec2::splat(k * 2.0)),
+                        1.0,
+                        col,
+                    );
+                }
+            }
+        }
         // Open pins (edit mode): small rings so the user sees where to connect.
-        if !sim_on {
+        if !sim_on && !th.dark {
             for c in &self.circ.comps {
                 for p in c.pins() {
                     if !count.contains_key(&p) {
@@ -1471,16 +1764,8 @@ impl App {
                         num: 0,
                         st: Default::default(),
                     };
-                    let cx = DrawCtx {
-                        ink: Color32::from_rgba_unmultiplied(0, 110, 230, 150),
-                        act: false,
-                        linked: None,
-                        pin_col: vec![],
-                        sim: false,
-                        time: 0.0,
-                        numbers: false,
-                        tag: true,
-                    };
+                    let mut cx = DrawCtx::plain(Color32::from_rgba_unmultiplied(0, 110, 230, 150), th.dark);
+                    cx.tag = true;
                     let xf = Xf { o: self.to_screen(origin.x as f32, origin.y as f32), s: z, r: self.place_rot };
                     draw::draw_comp(painter, xf, &tmp, &cx);
                 }
@@ -1502,11 +1787,24 @@ impl App {
                 _ => {}
             }
         }
+        if let Drag::WireFrom { start } = self.drag {
+            if let Some(mw) = self.mouse_world {
+                let p = P::new(mw.0.round() as i32, mw.1.round() as i32);
+                for (a, b) in Self::route(start, p) {
+                    painter.line_segment(
+                        [self.to_screen(a.x as f32, a.y as f32), self.to_screen(b.x as f32, b.y as f32)],
+                        Stroke::new(ww * 1.3, Color32::from_rgba_unmultiplied(0, 140, 255, 200)),
+                    );
+                }
+                let ring = if self.is_connection(p) { Color32::from_rgb(25, 190, 100) } else { ACCENT };
+                painter.circle_stroke(self.to_screen(p.x as f32, p.y as f32), z * 0.5, Stroke::new(2.0_f32, ring));
+            }
+        }
         if let Drag::Rubber { start } = self.drag {
             if let Some(mw) = self.mouse_world {
                 let rr = Rect::from_two_pos(start, self.to_screen(mw.0, mw.1));
                 painter.rect_filled(rr, 0.0, Color32::from_rgba_unmultiplied(0, 122, 255, 18));
-                painter.rect_stroke(rr, 0.0, Stroke::new(1.0_f32, SELECT), StrokeKind::Middle);
+                painter.rect_stroke(rr, 0.0, Stroke::new(1.0_f32, th_sel), StrokeKind::Middle);
             }
         }
 
@@ -1698,19 +1996,29 @@ impl eframe::App for App {
         if was_mobile != self.mobile {
             self.fitted = false;
         }
+        if self.dark_applied != Some(self.mobile) {
+            setup_style(ctx, self.mobile);
+            self.dark_applied = Some(self.mobile);
+        }
         if self.mobile {
             self.mobile_bars(ctx);
         } else {
             self.sheet = Sheet::None;
+            self.lib_open = false;
             self.menu_bar(ctx);
             self.toolbar(ctx);
             self.status_bar(ctx);
             self.palette(ctx);
             self.properties(ctx);
         }
+        let bg = draw::Theme::get(self.mobile).canvas;
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(DESK_BG))
+            .frame(egui::Frame::new().fill(bg))
             .show(ctx, |ui| self.canvas_ui(ui));
+        if self.mobile {
+            self.mobile_overlays(ctx);
+        }
+        self.share_windows(ctx);
         self.help_window(ctx);
         if self.frame % 30 == 1 {
             let title = format!("SimuEletro – {}", self.title);
@@ -1722,373 +2030,45 @@ impl eframe::App for App {
     }
 }
 
-// ---------- phone layout ----------
-
-impl App {
-    /// Top app bar, bottom tool bar and the slide-up sheets used on phones.
-    fn mobile_bars(&mut self, ctx: &egui::Context) {
-        let edit = !self.sim.running;
-        let screen = ctx.screen_rect();
-
-        // Top bar: menu, title, undo/redo and the big simulate button.
-        egui::TopBottomPanel::top("m_top")
-            .frame(
-                egui::Frame::new()
-                    .fill(Color32::WHITE)
-                    .inner_margin(Margin::symmetric(8, 6))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(225, 228, 234))),
-            )
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 4.0;
-                    if round_btn(ui, "☰", self.sheet == Sheet::Menu) {
-                        self.toggle_sheet(Sheet::Menu);
-                    }
-                    ui.vertical(|ui| {
-                        ui.spacing_mut().item_spacing.y = 0.0;
-                        ui.label(RichText::new("SimuEletro").strong().size(16.0));
-                        ui.label(RichText::new(&self.title).small().color(Color32::from_rgb(110, 116, 128)));
-                    });
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        let (txt, fill) = if self.sim.running {
-                            ("⏹", Color32::from_rgb(220, 53, 69))
-                        } else {
-                            ("▶", Color32::from_rgb(25, 160, 85))
-                        };
-                        let b = egui::Button::new(RichText::new(txt).size(20.0).color(Color32::WHITE))
-                            .fill(fill)
-                            .corner_radius(CornerRadius::same(22))
-                            .min_size(Vec2::splat(44.0));
-                        if ui.add(b).clicked() {
-                            self.toggle_sim();
-                            if self.sim.running && self.sheet != Sheet::Props {
-                                self.sheet = Sheet::None;
-                            }
-                        }
-                        if edit {
-                            if round_btn_enabled(ui, "⟳", false, !self.redo.is_empty()) {
-                                self.do_redo();
-                            }
-                            if round_btn_enabled(ui, "⟲", false, !self.undo.is_empty()) {
-                                self.do_undo();
-                            }
-                        } else if round_btn(ui, if self.sim.paused { "▶" } else { "⏸" }, self.sim.paused) {
-                            self.sim.paused = !self.sim.paused;
-                        }
-                    });
-                });
-            });
-
-        // Bottom tool bar (thumb reach).
-        egui::TopBottomPanel::bottom("m_bottom")
-            .frame(
-                egui::Frame::new()
-                    .fill(Color32::WHITE)
-                    .inner_margin(Margin::symmetric(4, 4))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(225, 228, 234))),
-            )
-            .show(ctx, |ui| {
-                let items: Vec<(&str, &str, bool, u8)> = if edit {
-                    vec![
-                        ("⬉", t("Selecionar", "Select"), self.tool == Tool::Select, 0),
-                        ("✏", t("Fio", "Wire"), self.tool == Tool::Wire, 1),
-                        ("➕", t("Componentes", "Parts"), self.sheet == Sheet::Parts || matches!(self.tool, Tool::Place(_)), 2),
-                        ("↻", t("Girar", "Rotate"), false, 3),
-                        ("🗑", t("Excluir", "Delete"), false, 4),
-                        ("ℹ", t("Propriedades", "Properties"), self.sheet == Sheet::Props, 5),
-                    ]
-                } else {
-                    vec![
-                        ("⛶", t("Ajustar", "Fit"), false, 6),
-                        ("ℹ", t("Estado", "Status"), self.sheet == Sheet::Props, 5),
-                        ("⏹", t("Parar", "Stop"), false, 7),
-                    ]
-                };
-                let n = items.len() as f32;
-                let w = (ui.available_width() / n).floor();
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    for (icon, label, active, id) in items {
-                        if nav_item(ui, w, icon, label, active) {
-                            match id {
-                                0 => self.set_tool(Tool::Select),
-                                1 => self.set_tool(Tool::Wire),
-                                2 => self.toggle_sheet(Sheet::Parts),
-                                3 => {
-                                    if let Tool::Place(_) = self.tool {
-                                        self.place_rot = (self.place_rot + 1) % 4;
-                                    } else {
-                                        self.rotate_selected();
-                                    }
-                                }
-                                4 => self.delete_selected(),
-                                5 => self.toggle_sheet(Sheet::Props),
-                                6 => self.fit(),
-                                _ => self.toggle_sim(),
-                            }
-                        }
-                    }
-                });
-            });
-
-        // Slide-up sheet above the tool bar.
-        if self.sheet != Sheet::None {
-            let h = (screen.height() * 0.46).clamp(220.0, 520.0);
-            egui::TopBottomPanel::bottom("m_sheet")
-                .exact_height(h)
-                .resizable(false)
-                .frame(
-                    egui::Frame::new()
-                        .fill(PANEL_BG)
-                        .inner_margin(Margin { left: 12, right: 12, top: 6, bottom: 8 })
-                        .corner_radius(CornerRadius { nw: 16, ne: 16, sw: 0, se: 0 })
-                        .stroke(Stroke::new(1.0_f32, Color32::from_rgb(215, 220, 228))),
-                )
-                .show(ctx, |ui| {
-                    // Grab handle + title + close.
-                    let (hr, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 8.0), Sense::hover());
-                    ui.painter().rect_filled(
-                        Rect::from_center_size(hr.center(), Vec2::new(40.0, 4.0)),
-                        2.0,
-                        Color32::from_rgb(200, 205, 214),
-                    );
-                    let title = match self.sheet {
-                        Sheet::Parts => t("Componentes", "Components"),
-                        Sheet::Props if self.sim.running => t("Estado da simulação", "Simulation status"),
-                        Sheet::Props => t("Propriedades", "Properties"),
-                        _ => "Menu",
-                    };
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(title).strong().size(16.0));
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if round_btn(ui, "✖", false) {
-                                self.sheet = Sheet::None;
-                            }
-                        });
-                    });
-                    match self.sheet {
-                        Sheet::Parts => self.parts_sheet(ui),
-                        Sheet::Props => {
-                            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                                if self.sim.running {
-                                    self.sim_panel(ui);
-                                } else {
-                                    self.edit_panel(ui);
-                                }
-                            });
-                        }
-                        _ => self.menu_sheet(ui),
-                    }
-                });
-        }
-    }
-
-    fn toggle_sheet(&mut self, s: Sheet) {
-        self.sheet = if self.sheet == s { Sheet::None } else { s };
-    }
-
-    /// Parts grouped by category: a row of category tabs and a grid of tiles.
-    fn parts_sheet(&mut self, ui: &mut egui::Ui) {
-        let cats = categories();
-        self.parts_cat = self.parts_cat.min(cats.len() - 1);
-        egui::ScrollArea::horizontal().id_salt("cats").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                for (i, (name, _)) in cats.iter().enumerate() {
-                    if chip(ui, name, i == self.parts_cat) {
-                        self.parts_cat = i;
-                    }
-                }
-            });
-        });
-        ui.add_space(6.0);
-        let kinds = cats[self.parts_cat].1.clone();
-        let cols = ((ui.available_width() / 104.0).floor() as usize).clamp(3, 6);
-        let gap = 8.0;
-        let tw = (ui.available_width() - gap * (cols as f32 - 1.0)) / cols as f32;
-        egui::ScrollArea::vertical().id_salt("parts").auto_shrink([false, false]).show(ui, |ui| {
-            for row in kinds.chunks(cols) {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = gap;
-                    for &k in row {
-                        let active = self.tool == Tool::Place(k);
-                        if part_tile(ui, k, tw, active) {
-                            self.set_tool(Tool::Place(k));
-                            self.sheet = Sheet::None;
-                            self.status = format!(
-                                "{}: {}",
-                                k.name(),
-                                t("toque na folha para colocar.", "tap the sheet to place it.")
-                            );
-                        }
-                    }
-                });
-                ui.add_space(gap);
-            }
-        });
-    }
-
-    fn menu_sheet(&mut self, ui: &mut egui::Ui) {
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            let full = Vec2::new(ui.available_width(), 40.0);
-            let item = |ui: &mut egui::Ui, text: String| ui.add(egui::Button::new(text).min_size(full)).clicked();
-            if item(ui, format!("📄  {}", t("Novo circuito", "New circuit"))) {
-                self.new_file();
-                self.sheet = Sheet::None;
-            }
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                if item(ui, format!("📂  {}", t("Abrir…", "Open…"))) {
-                    self.open_file();
-                }
-                if item(ui, format!("💾  {}", t("Salvar", "Save"))) {
-                    self.save_file(false);
-                }
-            }
-            ui.add_space(4.0);
-            ui.label(RichText::new(t("Exemplos", "Examples")).strong());
-            for (name, f) in examples::list() {
-                if item(ui, format!("⚡  {name}")) {
-                    self.load_circuit(f(), name);
-                    self.sheet = Sheet::None;
-                }
-            }
-            ui.add_space(4.0);
-            ui.label(RichText::new(t("Ver", "View")).strong());
-            if item(ui, format!("⛶  {}", t("Ajustar ao circuito", "Fit circuit"))) {
-                self.fit();
-            }
-            ui.checkbox(&mut self.numbers, t("Numeração dos bornes", "Terminal numbers"));
-            ui.checkbox(&mut self.grid, t("Grade", "Grid"));
-            let mut en = EN.load(Ordering::Relaxed);
-            ui.horizontal(|ui| {
-                ui.label(t("Idioma", "Language"));
-                let a = ui.radio_value(&mut en, false, "Português").clicked();
-                let b = ui.radio_value(&mut en, true, "English").clicked();
-                if a || b {
-                    EN.store(en, Ordering::Relaxed);
-                }
-            });
-            if item(ui, format!("❓  {}", t("Como usar", "How to use"))) {
-                self.help = true;
-                self.sheet = Sheet::None;
-            }
-        });
-    }
-
-    /// Short hint chip shown over the sheet on phones (there is no status bar).
-    fn mobile_hint(&self, painter: &egui::Painter) {
-        let text = if !self.status.is_empty() {
-            self.status.clone()
-        } else {
-            match self.tool {
-                Tool::Select if self.sim.running => {
-                    t("Toque nos botões e chaves para operá-los.", "Tap buttons and switches to operate them.").into()
-                }
-                Tool::Select => t(
-                    "Toque para selecionar · arraste para mover · pinça para zoom",
-                    "Tap to select · drag to move · pinch to zoom",
-                )
-                .into(),
-                Tool::Wire => t("Toque num borne e depois no outro.", "Tap a terminal, then another.").into(),
-                Tool::Place(k) => format!("{}: {}", k.name(), t("toque na folha.", "tap the sheet.")),
-            }
-        };
-        let r = self.canvas;
-        let g = painter.layout(text, FontId::proportional(12.5), Color32::WHITE, r.width() - 48.0);
-        let size = g.size() + Vec2::new(20.0, 10.0);
-        let pos = Pos2::new(r.center().x - size.x / 2.0, r.bottom() - size.y - 10.0);
-        painter.rect_filled(Rect::from_min_size(pos, size), 12.0, Color32::from_rgba_unmultiplied(30, 36, 46, 210));
-        painter.galley(pos + Vec2::new(10.0, 5.0), g, Color32::WHITE);
-    }
-}
-
-fn round_btn(ui: &mut egui::Ui, icon: &str, active: bool) -> bool {
-    round_btn_enabled(ui, icon, active, true)
-}
-
-fn round_btn_enabled(ui: &mut egui::Ui, icon: &str, active: bool, enabled: bool) -> bool {
-    let txt = RichText::new(icon).size(18.0);
-    let mut b = egui::Button::new(if active { txt.color(Color32::WHITE) } else { txt })
-        .corner_radius(CornerRadius::same(20))
-        .min_size(Vec2::splat(40.0));
-    if active {
-        b = b.fill(ACCENT);
-    }
-    ui.add_enabled(enabled, b).clicked()
-}
-
-/// Bottom navigation item: big icon with a small label under it.
-fn nav_item(ui: &mut egui::Ui, w: f32, icon: &str, label: &str, active: bool) -> bool {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, 54.0), Sense::click());
-    let p = ui.painter();
-    let col = if active { ACCENT } else { Color32::from_rgb(70, 76, 90) };
-    if active {
-        p.rect_filled(
-            Rect::from_center_size(rect.center() - Vec2::new(0.0, 8.0), Vec2::new(52.0, 28.0)),
-            14.0,
-            Color32::from_rgb(214, 230, 255),
-        );
-    } else if resp.is_pointer_button_down_on() {
-        p.rect_filled(rect.shrink(2.0), 8.0, Color32::from_rgb(236, 239, 244));
-    }
-    p.text(rect.center() - Vec2::new(0.0, 8.0), Align2::CENTER_CENTER, icon, FontId::proportional(19.0), col);
-    p.text(rect.center() + Vec2::new(0.0, 15.0), Align2::CENTER_CENTER, label, FontId::proportional(11.0), col);
-    resp.clicked()
-}
-
-fn chip(ui: &mut egui::Ui, text: &str, active: bool) -> bool {
-    let txt = RichText::new(text).size(13.0);
-    let b = egui::Button::new(if active { txt.color(Color32::WHITE).strong() } else { txt })
-        .fill(if active { ACCENT } else { Color32::WHITE })
-        .stroke(Stroke::new(1.0_f32, if active { ACCENT } else { Color32::from_rgb(210, 215, 224) }))
-        .corner_radius(CornerRadius::same(16))
-        .min_size(Vec2::new(0.0, 32.0));
-    ui.add(b).clicked()
-}
-
-/// Grid tile with the part's symbol and its name.
-fn part_tile(ui: &mut egui::Ui, kind: Kind, w: f32, active: bool) -> bool {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, 96.0), Sense::click());
-    let p = ui.painter_at(rect);
-    let fill = if active {
-        Color32::from_rgb(214, 230, 255)
-    } else if resp.is_pointer_button_down_on() {
-        Color32::from_rgb(236, 239, 244)
-    } else {
-        Color32::WHITE
-    };
-    p.rect_filled(rect, 10.0, fill);
-    p.rect_stroke(
-        rect,
-        10.0,
-        Stroke::new(1.0_f32, if active { ACCENT } else { Color32::from_rgb(222, 226, 233) }),
-        StrokeKind::Inside,
-    );
-    let icon = Rect::from_min_size(rect.min + Vec2::new(8.0, 6.0), Vec2::new(w - 16.0, 52.0));
-    symbol_preview(&p, icon, kind, 7.0);
-    let g = p.layout(kind.name().to_string(), FontId::proportional(11.5), Color32::from_rgb(40, 44, 52), w - 10.0);
-    let gp = Pos2::new(rect.center().x - g.size().x / 2.0, rect.top() + 62.0);
-    p.galley(gp, g, Color32::from_rgb(40, 44, 52));
-    resp.clicked()
-}
-
 // ---------- small widgets ----------
 
-fn setup_style(ctx: &egui::Context) {
-    ctx.set_visuals(egui::Visuals::light());
+/// Light widgets on the computer, dark ones on phones (SimuRelay style).
+fn setup_style(ctx: &egui::Context, dark: bool) {
+    ctx.set_visuals(if dark { egui::Visuals::dark() } else { egui::Visuals::light() });
     ctx.style_mut(|s| {
         s.spacing.item_spacing = Vec2::new(8.0, 6.0);
         s.spacing.button_padding = Vec2::new(8.0, 4.0);
-        s.visuals.panel_fill = PANEL_BG;
         s.visuals.window_corner_radius = CornerRadius::same(10);
         s.visuals.widgets.inactive.corner_radius = CornerRadius::same(6);
         s.visuals.widgets.hovered.corner_radius = CornerRadius::same(6);
         s.visuals.widgets.active.corner_radius = CornerRadius::same(6);
-        s.visuals.selection.bg_fill = Color32::from_rgb(210, 228, 255);
-        s.visuals.selection.stroke = Stroke::new(1.0_f32, ACCENT);
-        s.text_styles.insert(egui::TextStyle::Body, FontId::proportional(13.5));
-        s.text_styles.insert(egui::TextStyle::Button, FontId::proportional(13.5));
+        if dark {
+            s.visuals.panel_fill = Color32::from_rgb(28, 28, 28);
+            s.visuals.window_fill = Color32::from_rgb(28, 28, 28);
+            s.visuals.extreme_bg_color = Color32::from_rgb(16, 16, 16);
+            s.visuals.selection.bg_fill = Color32::from_rgb(30, 158, 87);
+            s.visuals.selection.stroke = Stroke::new(1.0_f32, Color32::from_rgb(45, 212, 160));
+            s.visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(40, 40, 40);
+            s.visuals.widgets.inactive.bg_fill = Color32::from_rgb(40, 40, 40);
+            s.text_styles.insert(egui::TextStyle::Body, FontId::proportional(15.0));
+            s.text_styles.insert(egui::TextStyle::Button, FontId::proportional(15.0));
+        } else {
+            s.visuals.panel_fill = PANEL_BG;
+            s.visuals.selection.bg_fill = Color32::from_rgb(210, 228, 255);
+            s.visuals.selection.stroke = Stroke::new(1.0_f32, ACCENT);
+            s.text_styles.insert(egui::TextStyle::Body, FontId::proportional(13.5));
+            s.text_styles.insert(egui::TextStyle::Button, FontId::proportional(13.5));
+        }
     });
+}
+
+/// Secondary text colour that reads well on both themes.
+fn subtle(ui: &egui::Ui) -> Color32 {
+    if ui.visuals().dark_mode {
+        Color32::from_rgb(170, 170, 170)
+    } else {
+        Color32::from_rgb(90, 96, 110)
+    }
 }
 
 fn tb(ui: &mut egui::Ui, icon: &str, tip: &str, enabled: bool) -> bool {
@@ -2116,9 +2096,13 @@ fn pill(ui: &mut egui::Ui, text: &str, col: Color32) {
 }
 
 fn card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+    let dark = ui.visuals().dark_mode;
     egui::Frame::new()
-        .fill(Color32::WHITE)
-        .stroke(Stroke::new(1.0_f32, Color32::from_rgb(226, 230, 236)))
+        .fill(if dark { Color32::from_rgb(36, 36, 36) } else { Color32::WHITE })
+        .stroke(Stroke::new(
+            1.0_f32,
+            if dark { Color32::from_rgb(58, 58, 58) } else { Color32::from_rgb(226, 230, 236) },
+        ))
         .corner_radius(CornerRadius::same(8))
         .inner_margin(Margin::same(10))
         .show(ui, |ui| {
@@ -2154,7 +2138,7 @@ fn palette_item(ui: &mut egui::Ui, kind: Kind, active: bool) -> bool {
     // Symbol preview.
     let icon = Rect::from_min_size(rect.min + Vec2::new(4.0, 2.0), Vec2::new(44.0, 36.0));
     p.rect_filled(icon, 5.0, Color32::WHITE);
-    symbol_preview(&p, icon, kind, 5.5);
+    symbol_preview(&p, icon, kind, 5.5, false);
     p.text(
         Pos2::new(icon.right() + 8.0, rect.center().y),
         Align2::LEFT_CENTER,
@@ -2166,7 +2150,7 @@ fn palette_item(ui: &mut egui::Ui, kind: Kind, active: bool) -> bool {
 }
 
 /// Draw a part's symbol centred in `icon`.
-fn symbol_preview(p: &egui::Painter, icon: Rect, kind: Kind, max_scale: f32) {
+fn symbol_preview(p: &egui::Painter, icon: Rect, kind: Kind, max_scale: f32, dark: bool) {
     let (x0, y0, x1, y1) = kind.bounds();
     let s = ((icon.width() - 6.0) / (x1 - x0)).min((icon.height() - 6.0) / (y1 - y0)).min(max_scale);
     let center = icon.center();
@@ -2182,16 +2166,7 @@ fn symbol_preview(p: &egui::Painter, icon: Rect, kind: Kind, max_scale: f32) {
         num: 0,
         st: Default::default(),
     };
-    let cx = DrawCtx {
-        ink: INK,
-        act: false,
-        linked: None,
-        pin_col: vec![],
-        sim: false,
-        time: 0.0,
-        numbers: false,
-        tag: false,
-    };
+    let cx = DrawCtx::plain(draw::Theme::get(dark).ink, dark);
     draw::draw_comp(p, Xf { o, s, r: 0 }, &c, &cx);
 }
 

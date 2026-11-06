@@ -22,12 +22,15 @@ O SimuEletro é uma releitura moderna dos simuladores clássicos de comandos el�
 
 ### Desenho
 - Folha com grade, moldura, colunas (A–H) e linhas (1–5), como numa folha de projeto.
-- **Componentes organizados em categorias:**
-  - **Alimentação:** fases L1, L2, L3, neutro N, terra PE, +24 V e 0 V CC.
-  - **Proteção:** fusível, disjuntor de 1 polo, disjuntor-motor de 3 polos e relé térmico.
-  - **Comandos:** botão NA (liga), botão NF (desliga), chave seletora, botão de emergência e fins de curso NA/NF.
-  - **Contatores e relés:** bobina de contator, temporizador ao trabalho e ao repouso, contatos auxiliares NA/NF e contatos principais (3 polos).
-  - **Cargas:** lâmpada sinalizadora (5 cores), sirene, motor monofásico/CC e motor trifásico.
+- **Componentes organizados em categorias** (cada uma com sua cor na biblioteca):
+  - **Fontes** (verde): fases L1, L2, L3, neutro N, terra PE, +24 V e 0 V CC.
+  - **Bobinas** (amarelo): bobina de contator, temporizador ao trabalho e ao repouso.
+  - **Auxiliares** (azul): contatos auxiliares NA e NF.
+  - **Comandos** (roxo): botão NA (liga), botão NF (desliga), chave seletora, emergência e fins de curso NA/NF.
+  - **Cargas** (marrom): lâmpada sinalizadora (5 cores) e sirene.
+  - **Contatores** (ciano): contatos principais de 3 polos.
+  - **Proteções** (vermelho): fusível, disjuntor de 1 polo, disjuntor-motor de 3 polos e relé térmico.
+  - **Motores** (verde-escuro): motor monofásico/CC e motor trifásico.
 - Ligação por fios com cantos automáticos, junções marcadas e bornes livres destacados.
 - Identificação automática (KM1, S1, H1, Q1…) e numeração dos bornes (13-14, 21-22, A1-A2, 1-2…).
 - Contatos **seguem** a bobina, o temporizador ou o disjuntor com a mesma identificação.
@@ -43,8 +46,26 @@ O SimuEletro é uma releitura moderna dos simuladores clássicos de comandos el�
 
 ### Telas
 - **Computador:** menus, barra de ferramentas, lista de componentes à esquerda e propriedades à direita.
-- **Celular / tela estreita:** barra superior com o botão Simular, folha em tela cheia, barra inferior com botões grandes e painel de componentes que sobe da parte de baixo, com **abas por categoria** e grade de símbolos. Arraste com um dedo para mover a folha e use a pinça para o zoom.
+- **Celular / tela estreita** (tema escuro, no estilo do app SimuRelay): barra superior com **MENU · PEÇAS · SIMULAR · FIO · MAIS · DESFAZER · REFAZER**; a biblioteca **PEÇAS** abre por cima da folha com um seletor de **categorias coloridas** e uma grade de símbolos. Com uma peça selecionada, a barra muda para **VALORES · GIRAR · COPIAR · EXCLUIR**. Há botões de zoom **− / +** no canto; arraste com um dedo para mover a folha, use a pinça para o zoom e **arraste de um borne a outro para ligar um fio**.
 - Português e inglês (menu Ver → Idioma).
+
+## Compartilhar por link
+
+Como no simulador Falstad, um circuito pode ser enviado como **link**: **Arquivo → 🔗 Compartilhar link** (ou ☰ MENU no celular).
+
+- O circuito inteiro vai **dentro do próprio link**, compactado e codificado no endereço depois de `?c=`. Não é criado nenhum arquivo nem conta.
+- Quem abre o link recebe uma **cópia** para simular e alterar; **o link original nunca muda**.
+- Para abrir no programa de computador um link recebido: **Arquivo → 📥 Abrir circuito de um link**.
+
+## Se o app não abrir
+
+O SimuEletro precisa de um navegador com **WebAssembly e WebGL** (Chrome, Edge, Firefox ou Safari atualizados). Se a página mostrar um aviso:
+
+- abra o link no navegador do celular, e não dentro de outro app (WhatsApp, Instagram etc.);
+- atualize a página;
+- confira se a "aceleração de hardware" do navegador está ligada.
+
+A mensagem na tela mostra o motivo exato do erro, o que ajuda a corrigir.
 
 ## Exemplos prontos
 

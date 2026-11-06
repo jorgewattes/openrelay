@@ -8,6 +8,8 @@ pub const INK: Color32 = Color32::from_rgb(28, 32, 38);
 pub const SELECT: Color32 = Color32::from_rgb(0, 122, 255);
 pub const DEAD: Color32 = Color32::from_rgb(150, 156, 165);
 pub const NUM: Color32 = Color32::from_rgb(90, 96, 110);
+/// Teal used for tags and terminal numbers in the dark (phone) theme.
+pub const TEAL: Color32 = Color32::from_rgb(45, 212, 160);
 
 pub fn pot_color(p: Pot) -> Color32 {
     match p {
@@ -44,6 +46,83 @@ pub struct DrawCtx {
     pub time: f32,
     pub numbers: bool,
     pub tag: bool,
+    /// Fill inside symbols (the sheet colour).
+    pub paper: Color32,
+    /// Terminal number colour.
+    pub num: Color32,
+    /// Tag (-KM1) colour.
+    pub tag_col: Color32,
+    /// Dark theme (phone layout).
+    pub dark: bool,
+}
+
+impl DrawCtx {
+    /// Plain, non-simulated drawing in the given theme.
+    pub fn plain(ink: Color32, dark: bool) -> Self {
+        let t = Theme::get(dark);
+        DrawCtx {
+            ink,
+            act: false,
+            linked: None,
+            pin_col: vec![],
+            sim: false,
+            time: 0.0,
+            numbers: false,
+            tag: false,
+            paper: t.paper,
+            num: t.num,
+            tag_col: t.tag,
+            dark,
+        }
+    }
+}
+
+/// Colours of the drawing sheet: light (computer, like the classic simulators)
+/// or dark (phone, like the SimuRelay app).
+#[derive(Clone, Copy)]
+pub struct Theme {
+    pub dark: bool,
+    pub canvas: Color32,
+    pub paper: Color32,
+    pub ink: Color32,
+    pub num: Color32,
+    pub tag: Color32,
+    pub grid: Color32,
+    pub grid_major: Color32,
+    pub select: Color32,
+    pub dead: Color32,
+}
+
+impl Theme {
+    pub fn get(dark: bool) -> Theme {
+        if dark {
+            Theme {
+                dark,
+                canvas: Color32::from_rgb(21, 21, 21),
+                paper: Color32::from_rgb(21, 21, 21),
+                ink: Color32::from_rgb(232, 232, 232),
+                num: TEAL,
+                tag: TEAL,
+                grid: Color32::from_rgb(33, 33, 33),
+                grid_major: Color32::from_rgb(48, 48, 48),
+                select: Color32::from_rgb(52, 140, 255),
+                dead: Color32::from_rgb(110, 110, 110),
+            }
+        } else {
+            Theme {
+                dark,
+                canvas: Color32::from_rgb(214, 219, 226),
+                paper: Color32::WHITE,
+                ink: INK,
+                num: NUM,
+                tag: INK,
+                grid: Color32::from_rgb(200, 205, 214),
+                grid_major: Color32::from_rgb(200, 205, 214),
+                select: SELECT,
+                dead: DEAD,
+            }
+        }
+    }
 }
 
 struct D<'a> {
@@ -156,7 +235,7 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
             let fill = if cx.sim && cx.pin_col.first().copied().flatten().is_some() {
                 col
             } else {
-                Color32::WHITE
+                cx.paper
             };
             d.circle(0.0, -1.0, 0.5, Some(fill));
             let label = match c.kind.source() {
@@ -175,7 +254,7 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
             let m = contact(&d, 0.0, !cx.act, false, pc(0), pc(1));
             breaker_mark(&d, 0.0);
             d.dash(m.0, m.1, -2.6, 3.0);
-            let fill = if cx.act { Some(Color32::from_rgb(255, 210, 205)) } else { None };
+            let fill = if cx.act { Some(if cx.dark { Color32::from_rgb(110, 40, 36) } else { Color32::from_rgb(255, 210, 205) }) } else { None };
             d.rect(-4.4, 2.2, -2.6, 3.8, fill);
             d.text(-3.5, 3.0, "I>", 0.9, Align2::CENTER_CENTER, cx.ink);
         }
@@ -186,12 +265,12 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
                 breaker_mark(&d, x);
             }
             d.dash(last.0, last.1, -2.6, 3.0);
-            let fill = if cx.act { Some(Color32::from_rgb(255, 210, 205)) } else { None };
+            let fill = if cx.act { Some(if cx.dark { Color32::from_rgb(110, 40, 36) } else { Color32::from_rgb(255, 210, 205) }) } else { None };
             d.rect(-4.4, 2.2, -2.6, 3.8, fill);
             d.text(-3.5, 3.0, "I>", 0.9, Align2::CENTER_CENTER, cx.ink);
         }
         Thermal3 => {
-            let fill = if cx.act { Some(Color32::from_rgb(255, 210, 205)) } else { None };
+            let fill = if cx.act { Some(if cx.dark { Color32::from_rgb(110, 40, 36) } else { Color32::from_rgb(255, 210, 205) }) } else { None };
             d.rect(-1.0, 1.9, 7.4, 4.1, fill);
             for (k, x) in [0.0f32, 3.0, 6.0].into_iter().enumerate() {
                 d.line_c(x, 0.0, x, 2.5, pc(k));
@@ -258,7 +337,7 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
         Coil | TimerOn | TimerOff => {
             d.line_c(0.0, 0.0, 0.0, 2.0, pc(0));
             d.line_c(0.0, 4.0, 0.0, 6.0, pc(1));
-            let fill = if cx.sim && cx.act { Some(Color32::from_rgb(140, 225, 160)) } else { Some(Color32::WHITE) };
+            let fill = if cx.sim && cx.act { Some(if cx.dark { Color32::from_rgb(30, 120, 66) } else { Color32::from_rgb(140, 225, 160) }) } else { Some(cx.paper) };
             d.rect(-1.4, 2.0, 1.4, 4.0, fill);
             match c.kind {
                 TimerOn => {
@@ -281,7 +360,7 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
                 let glow = Color32::from_rgba_unmultiplied(r, g, b, 70);
                 p.circle_filled(xf.p(0.0, 3.0), 2.3 * xf.s, glow);
             }
-            let fill = if on { Some(Color32::from_rgb(r, g, b)) } else { Some(Color32::WHITE) };
+            let fill = if on { Some(Color32::from_rgb(r, g, b)) } else { Some(cx.paper) };
             d.circle(0.0, 3.0, 1.3, fill);
             let k = 1.3 * 0.7071;
             d.line(-k, 3.0 - k, k, 3.0 + k);
@@ -290,7 +369,7 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
         Buzzer => {
             d.line_c(0.0, 0.0, 0.0, 2.2, pc(0));
             d.line_c(0.0, 3.8, 0.0, 6.0, pc(1));
-            let fill = if cx.sim && cx.act { Some(Color32::from_rgb(255, 214, 120)) } else { Some(Color32::WHITE) };
+            let fill = if cx.sim && cx.act { Some(Color32::from_rgb(255, 214, 120)) } else { Some(cx.paper) };
             d.rect(-1.0, 2.2, 1.0, 3.8, fill);
             d.arc_line(1.0, 3.0, 0.8, -PI * 0.5, PI * 0.5);
             if cx.sim && cx.act {
@@ -326,7 +405,7 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
             let (px, py) = (pins[i].0 as f32, pins[i].1 as f32);
             let y = if py < 3.0 { py + 0.9 } else { py - 0.9 };
             let (x, y) = if c.kind == Motor3 { (px + 0.3, 1.0) } else { (px + 0.35, y) };
-            d.text(x, y, s, 0.85, Align2::LEFT_CENTER, NUM);
+            d.text(x, y, s, 0.85, Align2::LEFT_CENTER, cx.num);
         }
     }
     if cx.tag && !c.tag.is_empty() {
@@ -341,10 +420,10 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
                 _ => c.pos.y as f32 + if c.rot == 0 { 3.0 } else { -3.0 },
             };
             let pos = origin + egui::vec2((x0 - 0.4) * s, mid * s);
-            p.text(pos, Align2::RIGHT_CENTER, text, font, cx.ink);
+            p.text(pos, Align2::RIGHT_CENTER, text, font, cx.tag_col);
         } else {
             let pos = origin + egui::vec2((x0 + x1) * 0.5 * s, (y0 - 0.3) * s);
-            p.text(pos, Align2::CENTER_BOTTOM, text, font, cx.ink);
+            p.text(pos, Align2::CENTER_BOTTOM, text, font, cx.tag_col);
         }
     }
 }
@@ -352,11 +431,11 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
 fn motor_body(d: &D, x: f32, y: f32, r: f32, c: &Comp, cx: &DrawCtx, kind: &str) {
     let running = cx.sim && c.st.motor != 0;
     let fill = if running {
-        Color32::from_rgb(214, 222, 232)
+        if cx.dark { Color32::from_rgb(38, 56, 78) } else { Color32::from_rgb(214, 222, 232) }
     } else if cx.sim && c.st.hum {
-        Color32::from_rgb(255, 225, 190)
+        if cx.dark { Color32::from_rgb(96, 64, 20) } else { Color32::from_rgb(255, 225, 190) }
     } else {
-        Color32::WHITE
+        cx.paper
     };
     d.circle(x, y, r, Some(fill));
     d.text(x, y - r * 0.28, "M", 1.25 * r / 2.0, Align2::CENTER_CENTER, cx.ink);

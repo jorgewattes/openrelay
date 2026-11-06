@@ -4,6 +4,7 @@ mod app;
 mod circuit;
 mod draw;
 mod examples;
+mod share;
 mod sim;
 
 /// Desktop entry point.
@@ -44,30 +45,64 @@ fn main() -> eframe::Result<()> {
     )
 }
 
+/// Shows a readable error on the web page (see `simuShowError` in index.html).
+#[cfg(target_arch = "wasm32")]
+fn show_web_error(msg: &str) {
+    use eframe::wasm_bindgen::{JsCast as _, JsValue};
+    let Some(win) = web_sys::window() else { return };
+    if let Ok(f) = js_sys::Reflect::get(&win, &JsValue::from_str("simuShowError")) {
+        if let Some(f) = f.dyn_ref::<js_sys::Function>() {
+            let _ = f.call1(&JsValue::NULL, &JsValue::from_str(msg));
+        }
+    }
+}
+
 /// Web entry point (GitHub Pages): draws into the page's canvas.
 #[cfg(target_arch = "wasm32")]
 fn main() {
     use eframe::wasm_bindgen::JsCast as _;
 
+    // A crash shows its reason on the page instead of a frozen screen.
+    std::panic::set_hook(Box::new(|info| {
+        show_web_error(&format!("Erro interno: {info}"));
+    }));
+
     let web_options = eframe::WebOptions::default();
     wasm_bindgen_futures::spawn_local(async {
-        let document = web_sys::window().expect("no window").document().expect("no document");
-        let canvas = document
+        let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+            return;
+        };
+        let Some(canvas) = document
             .get_element_by_id("simueletro_canvas")
-            .expect("canvas not found")
-            .dyn_into::<web_sys::HtmlCanvasElement>()
-            .expect("not a canvas");
+            .and_then(|e| e.dyn_into::<web_sys::HtmlCanvasElement>().ok())
+        else {
+            show_web_error("Área de desenho não encontrada na página.");
+            return;
+        };
+        // A circuit shared by link (…/?c=…) opens directly.
+        let shared = web_sys::window()
+            .and_then(|w| w.location().href().ok())
+            .and_then(|href| share::decode_from_url(&href));
         let result = eframe::WebRunner::new()
-            .start(canvas, web_options, Box::new(|cc| Ok(Box::new(app::App::new(cc, None, false)))))
+            .start(
+                canvas,
+                web_options,
+                Box::new(move |cc| {
+                    let mut a = app::App::new(cc, None, false);
+                    if let Some(c) = shared {
+                        a.open_shared(c);
+                    }
+                    Ok(Box::new(a))
+                }),
+            )
             .await;
-        if let Some(loading) = document.get_element_by_id("loading") {
-            match result {
-                Ok(_) => loading.remove(),
-                Err(e) => {
-                    loading.set_inner_html("<p>Não foi possível iniciar o SimuEletro neste navegador.</p>");
-                    let _ = e;
+        match result {
+            Ok(_) => {
+                if let Some(loading) = document.get_element_by_id("loading") {
+                    loading.remove();
                 }
             }
+            Err(e) => show_web_error(&format!("Falha ao iniciar os gráficos (WebGL): {e:?}")),
         }
     });
 }

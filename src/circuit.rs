@@ -129,31 +129,38 @@ pub enum Kind {
     Motor3,
 }
 
-/// Palette categories, in toolbar order.
+/// Palette categories, in library order, each with its marker colour
+/// (the coloured line under each part in the library).
 pub fn categories() -> Vec<(&'static str, Vec<Kind>)> {
+    CATEGORY_DEFS
+        .iter()
+        .map(|(pt, en, _, kinds)| (t(pt, en), kinds.to_vec()))
+        .collect()
+}
+
+type CategoryDef = (&'static str, &'static str, [u8; 3], &'static [Kind]);
+
+pub const CATEGORY_DEFS: [CategoryDef; 8] = {
     use Kind::*;
-    vec![
-        (
-            t("Alimentação", "Supply"),
-            vec![TermL1, TermL2, TermL3, TermN, TermPE, TermP24, Term0V],
-        ),
-        (
-            t("Proteção", "Protection"),
-            vec![Fuse, Breaker1, Breaker3, Thermal3],
-        ),
-        (
-            t("Comandos", "Controls"),
-            vec![PushNo, PushNc, Switch, EStop, LimitNo, LimitNc],
-        ),
-        (
-            t("Contatores e relés", "Contactors & relays"),
-            vec![Coil, TimerOn, TimerOff, ContactNo, ContactNc, Main3],
-        ),
-        (
-            t("Cargas", "Loads"),
-            vec![Lamp, Buzzer, Motor1, Motor3],
-        ),
+    [
+        ("Fontes", "Sources", [76, 175, 80], &[TermL1, TermL2, TermL3, TermN, TermPE, TermP24, Term0V]),
+        ("Bobinas", "Coils", [212, 194, 43], &[Coil, TimerOn, TimerOff]),
+        ("Auxiliares", "Auxiliaries", [47, 134, 214], &[ContactNo, ContactNc]),
+        ("Comandos", "Switches", [156, 72, 190], &[PushNo, PushNc, Switch, EStop, LimitNo, LimitNc]),
+        ("Cargas", "Loads", [141, 122, 110], &[Lamp, Buzzer]),
+        ("Contatores", "Contactors", [47, 198, 214], &[Main3]),
+        ("Proteções", "Protections", [214, 69, 58], &[Fuse, Breaker1, Breaker3, Thermal3]),
+        ("Motores", "Motors", [31, 150, 130], &[Motor1, Motor3]),
     ]
+};
+
+/// Marker colour of the category a part belongs to.
+pub fn category_color(k: Kind) -> [u8; 3] {
+    CATEGORY_DEFS
+        .iter()
+        .find(|(_, _, _, kinds)| kinds.contains(&k))
+        .map(|d| d.2)
+        .unwrap_or([150, 150, 150])
 }
 
 const PINS_1: &[(i32, i32)] = &[(0, 0)];

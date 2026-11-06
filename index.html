@@ -2,10 +2,13 @@
 <html lang="pt-BR">
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="theme-color" content="#ffffff" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#151515" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="description" content="SimuEletro: simulador de comandos elétricos no navegador, no computador e no celular." />
     <title>SimuEletro – simulador de comandos elétricos</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2319a055'/%3E%3Cpath d='M36 6 16 36h14l-4 22 22-32H34z' fill='white'/%3E%3C/svg%3E" />
     <link data-trunk rel="rust" data-bin="simueletro" />
     <style>
         html, body {
@@ -14,9 +17,12 @@
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background: #d6dbe2;
+            background: #151515;
+            color: #e8e8e8;
             font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
             touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
         #simueletro_canvas {
             position: absolute;
@@ -24,6 +30,7 @@
             width: 100%;
             height: 100%;
             display: block;
+            outline: none;
         }
         #loading {
             position: absolute;
@@ -32,25 +39,76 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            color: #1c2026;
-            gap: 12px;
+            gap: 14px;
+            padding: 24px;
+            text-align: center;
+            background: #151515;
         }
+        #loading p { max-width: 420px; line-height: 1.45; margin: 0; }
+        #loading .erro { color: #ff8a80; font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+        #loading a { color: #6cc4ff; }
         .spinner {
             width: 36px;
             height: 36px;
-            border: 4px solid #b9c1cc;
-            border-top-color: #006ee6;
+            border: 4px solid #3a3a3a;
+            border-top-color: #19a055;
             border-radius: 50%;
             animation: spin 0.9s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
     </style>
+    <script>
+        // Diagnóstico: se o app não iniciar, mostra o motivo em vez de uma tela vazia.
+        (function () {
+            function show(html) {
+                var el = document.getElementById("loading");
+                if (!el) {
+                    el = document.createElement("div");
+                    el.id = "loading";
+                    document.body.appendChild(el);
+                }
+                el.style.display = "flex";
+                el.innerHTML = html;
+            }
+            window.simuShowError = function (msg) {
+                show('<p><b>O SimuEletro não conseguiu abrir neste navegador.</b></p>' +
+                    '<p>Tente atualizar a página ou abrir no Chrome, Edge, Firefox ou Safari atualizados ' +
+                    '(fora de aplicativos como WhatsApp ou Instagram).</p>' +
+                    '<p class="erro"></p>');
+                document.querySelector("#loading .erro").textContent = String(msg || "");
+            };
+            function check() {
+                var c = document.createElement("canvas");
+                var ok = !!(window.WebAssembly && (c.getContext("webgl2") || c.getContext("webgl")));
+                if (!window.WebAssembly) { window.simuShowError("Este navegador não suporta WebAssembly."); }
+                else if (!ok) { window.simuShowError("Este navegador não permite gráficos WebGL (aceleração de hardware desligada?)."); }
+                return ok;
+            }
+            window.addEventListener("error", function (e) {
+                if (document.getElementById("loading")) window.simuShowError(e.message || e.error);
+            });
+            window.addEventListener("unhandledrejection", function (e) {
+                if (document.getElementById("loading")) window.simuShowError(e.reason && (e.reason.message || e.reason));
+            });
+            window.addEventListener("DOMContentLoaded", function () {
+                check();
+                setTimeout(function () {
+                    var el = document.getElementById("loading");
+                    if (el && el.querySelector(".spinner")) {
+                        el.insertAdjacentHTML("beforeend",
+                            '<p>Está demorando mais que o normal… Se a página não abrir, atualize ou tente outro navegador.</p>');
+                    }
+                }, 20000);
+            });
+        })();
+    </script>
 </head>
 <body>
     <canvas id="simueletro_canvas"></canvas>
     <div id="loading">
         <div class="spinner"></div>
-        <div>Carregando o SimuEletro…</div>
+        <p>Carregando o SimuEletro…</p>
     </div>
+    <noscript><p style="padding:24px">Ative o JavaScript para usar o SimuEletro.</p></noscript>
 </body>
 </html>

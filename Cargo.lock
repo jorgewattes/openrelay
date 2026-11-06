@@ -2708,6 +2708,8 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "image",
+ "js-sys",
+ "miniz_oxide 0.8.9",
  "rfd",
  "serde",
  "serde_json",

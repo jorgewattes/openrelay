@@ -11,6 +11,7 @@ path = "src/main.rs"
 eframe = "0.32"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+miniz_oxide = "0.8"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -19,7 +20,8 @@ rfd = "0.15"
 # Web (GitHub Pages) build.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlCanvasElement", "HtmlElement"] }
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlCanvasElement", "HtmlElement", "Location", "History"] }
 
 [profile.release]
 opt-level = 2
