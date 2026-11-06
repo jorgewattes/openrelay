@@ -12,6 +12,8 @@ eframe = "0.32"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 miniz_oxide = "0.8"
+# Soft siren sound (desktop and browser).
+tinyaudio = "2"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

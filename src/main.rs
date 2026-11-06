@@ -6,6 +6,7 @@ mod draw;
 mod examples;
 mod share;
 mod sim;
+mod sound;
 
 /// Desktop entry point.
 #[cfg(not(target_arch = "wasm32"))]

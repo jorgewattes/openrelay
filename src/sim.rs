@@ -2,7 +2,9 @@
 //! which loads have voltage (from fixed, tabulated values only), compares it
 //! with each part's rated voltage and runs contactors, timers and motors.
 
-use crate::circuit::{nominal, t, Circuit, Comp, Cur, Kind, Pot, AC_SYSTEMS, DC_LEVELS, MOTOR6_NOMINALS, P};
+use crate::circuit::{
+    nominal, t, Circuit, Comp, Cur, Kind, Pot, AC_SYSTEMS, DC_LEVELS, MOTOR12_NOMINALS, MOTOR1D_NOMINALS, MOTOR6_NOMINALS, P,
+};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default, Clone)]
@@ -87,10 +89,11 @@ pub fn device_active(c: &Circuit) -> HashMap<String, bool> {
 pub fn actuated(c: &Comp, act: &HashMap<String, bool>) -> bool {
     use Kind::*;
     match c.kind {
-        ContactNo | ContactNc | Main3 => act.get(&c.tag).copied().unwrap_or(false),
+        ContactNo | ContactNc | ContactCo | Main3 => act.get(&c.tag).copied().unwrap_or(false),
         PushNo | PushNc => c.st.pressed,
         Switch | EStop | LimitNo | LimitNc => c.st.on,
-        Breaker1 | Breaker2 | Breaker3 | Rcd2 | Rcd4 | Thermal3 => c.st.on,
+        Thermal3 => c.st.on,
+        k if k.is_breaker() => c.st.on,
         _ => false,
     }
 }
@@ -107,12 +110,14 @@ fn closed_pairs(c: &Comp, act: &HashMap<String, bool>) -> &'static [(usize, usiz
         Fuse => ONE,
         Breaker1 => if a { NONE } else { ONE },
         Breaker2 | Rcd2 => if a { NONE } else { TWO },
-        Breaker3 => if a { NONE } else { THREE },
+        Breaker3 | MotorBreaker3 => if a { NONE } else { THREE },
         Rcd4 => if a { NONE } else { FOUR },
         Thermal3 => THREE,
         Main3 => if a { THREE } else { NONE },
         PushNo | Switch | LimitNo | ContactNo => if a { ONE } else { NONE },
         PushNc | EStop | LimitNc | ContactNc => if a { NONE } else { ONE },
+        // Changeover: common (0) with NC (1) at rest, with NO (2) when worked.
+        ContactCo => if a { &[(0, 2)] } else { &[(0, 1)] },
         _ => NONE,
     }
 }
@@ -459,7 +464,101 @@ impl Sim {
                         }
                     }
                 }
-                Kind::Motor6 => {
+                Kind::Motor12 => {
+                    // Pins: 0 U1 1 V1 2 W1 3 U2 4 V2 5 W2 6 U5 7 V5 8 W5 9 U6 10 V6 11 W6.
+                    let p = |i: usize| c.pin(i);
+                    let same = |a: usize, b: usize| nets.same(p(a), p(b));
+                    let top = [p(0), p(1), p(2)];
+                    let par = same(0, 6) && same(1, 7) && same(2, 8) && same(3, 9) && same(4, 10) && same(5, 11);
+                    let ser = same(3, 6) && same(4, 7) && same(5, 8);
+                    // (connection code, half-winding voltage as fraction of (phase, line) voltage)
+                    let conn: Option<(u8, bool, f32)> = if par && same(3, 4) && same(4, 5) {
+                        Some((1, false, 1.0)) // YY: phase voltage
+                    } else if par && same(0, 5) && same(1, 3) && same(2, 4) {
+                        Some((2, true, 1.0)) // ΔΔ: line voltage
+                    } else if ser && same(9, 10) && same(10, 11) {
+                        Some((3, false, 0.5)) // Y series: half the phase voltage
+                    } else if ser && same(0, 11) && same(1, 9) && same(2, 10) {
+                        Some((4, true, 0.5)) // Δ series: half the line voltage
+                    } else {
+                        None
+                    };
+                    c.st.conn = conn.map(|x| x.0).unwrap_or(0);
+                    match (rotation(nets, top), conn) {
+                        (Some((dir, lvl)), Some((_, line, frac))) => {
+                            let (vf, vl) = ac_system(lvl);
+                            let half = if line { vl } else { vf } * frac;
+                            let rated = MOTOR12_NOMINALS.get(c.volt as usize).unwrap_or(&MOTOR12_NOMINALS[0]).0;
+                            let s = check((Cur::Ac, rated), (Cur::Ac, half));
+                            let runs = s != 1;
+                            c.st.motor = if runs { dir } else { 0 };
+                            c.st.energized = runs;
+                            c.st.hum = false;
+                            c.st.volt = vl;
+                            c.st.vstat = s;
+                        }
+                        (rot, _) => {
+                            c.st.motor = 0;
+                            c.st.energized = false;
+                            c.st.hum = rot.is_some() || phase_count(nets, &top) == 2;
+                            c.st.volt = 0.0;
+                            c.st.vstat = 0;
+                        }
+                    }
+                }
+                Kind::Motor1S | Kind::Motor1D => {
+                    // Main winding supply and start winding; reversing Z1/Z2 reverses rotation.
+                    let pins = c.pins();
+                    let p = |i: usize| pins[i];
+                    let (supply, rated, aux_ok, z1_with_start) = if c.kind == Kind::Motor1S {
+                        let aux = volts(nets, p(2), p(3)).is_some();
+                        (volts(nets, p(0), p(1)), nominal(c).map(|n| n.1).unwrap_or(220.0), aux, nets.same(p(2), p(0)))
+                    } else {
+                        let (par_v, ser_v) = *MOTOR1D_NOMINALS.get(c.volt as usize).unwrap_or(&MOTOR1D_NOMINALS[0]);
+                        let par = nets.same(p(0), p(2)) && nets.same(p(1), p(3));
+                        let ser = nets.same(p(1), p(2));
+                        c.st.conn = if par { 1 } else if ser { 2 } else { 0 };
+                        let aux1 = nets.same(p(4), p(0)) && nets.same(p(5), p(1));
+                        let aux2 = nets.same(p(4), p(2)) && nets.same(p(5), p(3));
+                        let aux1r = nets.same(p(4), p(1)) && nets.same(p(5), p(0));
+                        let aux2r = nets.same(p(4), p(3)) && nets.same(p(5), p(2));
+                        let aux = aux1 || aux2 || aux1r || aux2r;
+                        if par {
+                            (volts(nets, p(0), p(1)), par_v, aux, aux1 || aux2)
+                        } else if ser {
+                            (volts(nets, p(0), p(3)), ser_v, aux, aux1 || aux2)
+                        } else {
+                            (None, par_v, aux, true)
+                        }
+                    };
+                    match supply {
+                        Some((Cur::Ac, v, _)) => {
+                            let s = check((Cur::Ac, rated), (Cur::Ac, v));
+                            c.st.volt = v;
+                            c.st.vstat = s;
+                            // Without the start winding it only hums and does not start.
+                            let runs = s != 1 && aux_ok;
+                            c.st.hum = !aux_ok;
+                            c.st.energized = runs;
+                            c.st.motor = if runs { if z1_with_start { 1 } else { -1 } } else { 0 };
+                        }
+                        Some((Cur::Dc, v, _)) => {
+                            c.st.volt = v;
+                            c.st.vstat = 2;
+                            c.st.hum = false;
+                            c.st.energized = false;
+                            c.st.motor = 0;
+                        }
+                        None => {
+                            c.st.volt = 0.0;
+                            c.st.vstat = 0;
+                            c.st.hum = false;
+                            c.st.energized = false;
+                            c.st.motor = 0;
+                        }
+                    }
+                }
+                Kind::Motor6 | Kind::Motor6X => {
                     // Windings U1-U2, V1-V2, W1-W2; the outside links decide star or delta.
                     let mut w: Vec<f32> = (0..3)
                         .map(|i| match volts(nets, c.pin(i), c.pin(i + 3)) {
@@ -518,9 +617,17 @@ impl Sim {
             let outs: Vec<P> = (n..2 * n).map(|i| r.pin(i)).collect();
             for l in &circ.comps {
                 let pins: Vec<P> = match l.kind {
-                    Kind::Lamp | Kind::Buzzer | Kind::Coil | Kind::TimerOn | Kind::TimerOff | Kind::Motor1 => l.pins(),
+                    Kind::Lamp
+                    | Kind::Buzzer
+                    | Kind::Coil
+                    | Kind::TimerOn
+                    | Kind::TimerOff
+                    | Kind::Motor1
+                    | Kind::Motor1S
+                    | Kind::Motor1D => l.pins(),
                     Kind::Motor3 => l.pins()[..3].to_vec(),
-                    Kind::Motor6 => l.pins()[..6].to_vec(),
+                    Kind::Motor6 | Kind::Motor6X => l.pins()[..6].to_vec(),
+                    Kind::Motor12 => l.pins()[..12].to_vec(),
                     _ => continue,
                 };
                 let earth = pins.iter().any(|p| matches!(nets.src_at(*p), Some((Pot::PE, _))));
@@ -593,7 +700,7 @@ mod tests {
         assert!(!get(&c, Kind::Coil, "KM1").st.energized);
         assert_eq!(get(&c, Kind::Motor3, "M1").st.motor, 0);
         // Trip the motor breaker: tripped lamp lights.
-        c.comps.iter_mut().find(|x| x.kind == Kind::Breaker3).unwrap().st.on = true;
+        c.comps.iter_mut().find(|x| x.kind == Kind::MotorBreaker3).unwrap().st.on = true;
         s.step(&mut c, 0.02);
         assert!(get(&c, Kind::Lamp, "H2").st.energized);
         assert!(s.fault.is_none());
@@ -773,7 +880,7 @@ mod tests {
         assert!(get(&c, Kind::Coil, "KM1").st.energized);
         assert!(get(&c, Kind::Coil, "KM2").st.energized, "star first");
         assert!(!get(&c, Kind::Coil, "KM3").st.energized);
-        let m = get(&c, Kind::Motor6, "M1");
+        let m = get(&c, Kind::Motor6X, "M1");
         assert_eq!((m.st.motor != 0, m.st.conn), (true, 1), "runs in star");
         assert_eq!(m.st.vstat, -1, "reduced voltage in star");
         for _ in 0..300 {
@@ -781,14 +888,14 @@ mod tests {
         }
         assert!(!get(&c, Kind::Coil, "KM2").st.energized);
         assert!(get(&c, Kind::Coil, "KM3").st.energized, "then delta");
-        let m = get(&c, Kind::Motor6, "M1");
+        let m = get(&c, Kind::Motor6X, "M1");
         assert_eq!((m.st.motor != 0, m.st.conn, m.st.vstat), (true, 2, 0));
         assert!(s.fault.is_none(), "{:?}", s.fault);
         // Stop.
         press(&mut c, "S0", true);
         s.step(&mut c, 0.02);
         assert!(!get(&c, Kind::Coil, "KM1").st.energized);
-        assert_eq!(get(&c, Kind::Motor6, "M1").st.motor, 0);
+        assert_eq!(get(&c, Kind::Motor6X, "M1").st.motor, 0);
     }
 
     #[test]
@@ -810,5 +917,154 @@ mod tests {
         let dr = c.comps.iter().find(|x| x.kind == Kind::Rcd2).unwrap();
         assert!(dr.st.on, "DR must trip");
         assert!(s.fault.as_deref().unwrap_or("").contains("DR1"));
+    }
+    fn run(c: &mut Circuit, s: &mut Sim, press_tag: &str, steps: usize) {
+        press(c, press_tag, true);
+        s.step(c, 0.02);
+        press(c, press_tag, false);
+        for _ in 0..steps {
+            s.step(c, 0.02);
+        }
+    }
+
+    #[test]
+    fn corrections_do_not_work() {
+        let list = examples::corrections();
+        // 1: holding contact wrong → motor stops when S2 is released.
+        let mut c = (list[0].2)();
+        let mut s = Sim::default();
+        s.start(&mut c);
+        run(&mut c, &mut s, "S2", 2);
+        assert!(!get(&c, Kind::Coil, "KM1").st.energized);
+        // 2: coil on, motor never turns.
+        let mut c = (list[1].2)();
+        s.start(&mut c);
+        run(&mut c, &mut s, "S2", 2);
+        assert!(get(&c, Kind::Coil, "KM1").st.energized);
+        assert_eq!(get(&c, Kind::Motor3, "M1").st.motor, 0);
+        // 3: both directions the same.
+        let mut c = (list[2].2)();
+        s.start(&mut c);
+        run(&mut c, &mut s, "S1", 2);
+        let d1 = get(&c, Kind::Motor3, "M1").st.motor;
+        run(&mut c, &mut s, "S0", 2);
+        run(&mut c, &mut s, "S2", 2);
+        let d2 = get(&c, Kind::Motor3, "M1").st.motor;
+        assert!(d1 != 0 && d1 == d2, "{d1} {d2}");
+        // 4: lamp lit before the delay.
+        let mut c = (list[3].2)();
+        s.start(&mut c);
+        run(&mut c, &mut s, "S1", 5);
+        assert!(get(&c, Kind::Lamp, "H1").st.energized);
+        // 5: starts in delta.
+        let mut c = (list[4].2)();
+        s.start(&mut c);
+        run(&mut c, &mut s, "S1", 2);
+        assert!(get(&c, Kind::Coil, "KM3").st.energized);
+        assert!(!get(&c, Kind::Coil, "KM2").st.energized);
+        assert!(s.fault.is_none());
+    }
+
+    /// Three phases into U1 V1 W1 of a 12-terminal motor, with the links given.
+    fn motor12(links: &[((i32, i32), (i32, i32))]) -> Circuit {
+        let mut c = Circuit::default();
+        c.add(Kind::TermL1, (0, 0).into(), 0, "");
+        c.add(Kind::TermL2, (3, 0).into(), 0, "");
+        c.add(Kind::TermL3, (6, 0).into(), 0, "");
+        c.add(Kind::Motor12, (0, 4).into(), 0, "M1");
+        for x in [0, 3, 6] {
+            c.wire((x, 0), (x, 4));
+        }
+        for (a, b) in links {
+            c.wire(*a, *b);
+        }
+        c
+    }
+
+    #[test]
+    fn twelve_terminal_motor_connections() {
+        let mut s = Sim::default();
+        // Top row y=4: U1 0, V1 3, W1 6, U5 9, V5 12, W5 15; bottom y=16: U2 0, V2 3, W2 6, U6 9, V6 12, W6 15.
+        // YY on 380 V: parallel (U1-U5... and U2-U6...), U2-V2-W2 tied → 220 V per half: right.
+        let mut c = motor12(&[
+            ((0, 4), (0, 2)), ((0, 2), (9, 2)), ((9, 2), (9, 4)),
+            ((3, 4), (3, 1)), ((3, 1), (12, 1)), ((12, 1), (12, 4)),
+            ((6, 4), (6, 0)), ((6, 0), (15, 0)), ((15, 0), (15, 4)),
+            ((0, 16), (3, 16)), ((3, 16), (6, 16)), ((6, 16), (9, 16)), ((9, 16), (12, 16)), ((12, 16), (15, 16)),
+        ]);
+        s.start(&mut c);
+        let m = get(&c, Kind::Motor12, "M1");
+        assert_eq!((m.st.conn, m.st.motor != 0, m.st.vstat), (1, true, 0));
+        // Y series on 380 V: U2-U5, V2-V5, W2-W5 and U6-V6-W6 tied → 110 V per half: under-voltage.
+        let mut c = motor12(&[
+            ((0, 16), (0, 18)), ((0, 18), (9, 18)), ((9, 18), (9, 4)),
+            ((3, 16), (3, 19)), ((3, 19), (12, 19)), ((12, 19), (12, 4)),
+            ((6, 16), (6, 20)), ((6, 20), (15, 20)), ((15, 20), (15, 4)),
+            ((9, 16), (12, 16)), ((12, 16), (15, 16)),
+        ]);
+        s.start(&mut c);
+        let m = get(&c, Kind::Motor12, "M1");
+        assert_eq!((m.st.conn, m.st.motor != 0, m.st.vstat), (3, true, -1));
+    }
+
+    #[test]
+    fn single_phase_needs_start_winding() {
+        let mut c = Circuit::default();
+        c.add(Kind::TermL1, (0, 0).into(), 0, "");
+        c.add(Kind::TermN, (0, 20).into(), 2, "");
+        let m = c.add(Kind::Motor1S, (0, 4).into(), 0, "M1");
+        c.comp_mut(m).unwrap().volt = 0; // 220 V
+        c.wire((0, 0), (0, 4));
+        c.wire((0, 12), (0, 20));
+        let mut s = Sim::default();
+        s.start(&mut c);
+        let m = get(&c, Kind::Motor1S, "M1");
+        assert!(m.st.motor == 0 && m.st.hum, "no start winding: hums");
+        // Start winding in parallel: runs.
+        c.wire((0, 2), (4, 2));
+        c.wire((4, 2), (4, 4));
+        c.wire((4, 12), (4, 14));
+        c.wire((4, 14), (0, 14));
+        s.start(&mut c);
+        assert_ne!(get(&c, Kind::Motor1S, "M1").st.motor, 0);
+    }
+
+    #[test]
+    fn changeover_contact_switches() {
+        let mut c = Circuit::default();
+        c.add(Kind::TermL1, (0, 0).into(), 0, "");
+        c.add(Kind::TermN, (20, 40).into(), 2, "");
+        c.add(Kind::PushNo, (0, 2).into(), 0, "S1");
+        c.add(Kind::Coil, (0, 10).into(), 0, "KM1");
+        c.wire((0, 0), (0, 2));
+        c.wire((0, 8), (0, 10));
+        c.wire((0, 16), (0, 40));
+        c.wire((0, 40), (20, 40));
+        // Changeover KM1: common fed from L1, NC → H1, NO → H2.
+        c.add(Kind::ContactCo, (10, 4).into(), 0, "KM1");
+        c.wire((0, 1), (10, 1));
+        c.wire((10, 1), (10, 10));
+        c.add(Kind::Lamp, (10, 20).into(), 0, "H1");
+        c.add(Kind::Lamp, (13, 20).into(), 0, "H2");
+        // NC at (10,4)? pins: C (10,10), NC (10,4), NO (13,4).
+        c.wires.retain(|w| !(w.a == P::new(10, 1) && w.b == P::new(10, 10)));
+        c.wire((10, 1), (10, 0));
+        c.wire((10, 0), (8, 0));
+        c.wire((8, 0), (8, 12));
+        c.wire((8, 12), (10, 12));
+        c.wire((10, 12), (10, 10));
+        c.wire((10, 4), (10, 3));
+        c.wire((10, 3), (11, 3));
+        c.wire((11, 3), (11, 20));
+        c.wire((11, 20), (10, 20));
+        c.wire((13, 4), (13, 20));
+        c.wire((10, 26), (10, 40));
+        c.wire((13, 26), (13, 40));
+        let mut s = Sim::default();
+        s.start(&mut c);
+        assert!(get(&c, Kind::Lamp, "H1").st.energized && !get(&c, Kind::Lamp, "H2").st.energized);
+        press(&mut c, "S1", true);
+        s.step(&mut c, 0.02);
+        assert!(!get(&c, Kind::Lamp, "H1").st.energized && get(&c, Kind::Lamp, "H2").st.energized);
     }
 }

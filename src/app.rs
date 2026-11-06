@@ -41,8 +41,6 @@ struct Export {
 /// Marks SimuEletro pieces in the system clipboard.
 const CLIP_PREFIX: &str = "SIMUELETRO-CLIP:";
 
-const SHEET_W: f32 = 100.0;
-const SHEET_H: f32 = 70.0;
 
 const ACCENT: Color32 = Color32::from_rgb(0, 110, 230);
 const FRAME_GREEN: Color32 = Color32::from_rgb(46, 150, 80);
@@ -124,6 +122,9 @@ pub struct App {
     /// Dark theme in effect this frame.
     dark: bool,
     export: Option<Export>,
+    siren: crate::sound::Siren,
+    /// Buzzer sound on/off.
+    sound_on: bool,
     /// Style currently applied to the widgets: (dark, phone).
     dark_applied: Option<(bool, bool)>,
     /// Copied / cut piece of circuit (also put in the system clipboard as text).
@@ -171,6 +172,8 @@ impl App {
             theme_mode: ThemeMode::Auto,
             dark: force_mobile,
             export: None,
+            siren: Default::default(),
+            sound_on: true,
             dark_applied: None,
             clip: None,
             paste_n: 0,
@@ -195,6 +198,30 @@ impl App {
                 app.circ.add(Kind::PushNo, (30, 36).into(), 0, "S1");
                 let n = app.circ.add(Kind::PushNc, (40, 36).into(), 0, "S1");
                 app.circ.comp_mut(n).unwrap().num = 1;
+            }
+            "symbols" => {
+                let mut c = Circuit::default();
+                c.add(Kind::Breaker1, (10, 8).into(), 0, "Q1");
+                c.add(Kind::Breaker2, (22, 8).into(), 0, "Q2");
+                c.add(Kind::Breaker3, (36, 8).into(), 0, "Q3");
+                c.add(Kind::MotorBreaker3, (54, 8).into(), 0, "Q4");
+                c.add(Kind::Thermal3, (68, 8).into(), 0, "F1");
+                let a = c.add(Kind::ContactNc, (84, 8).into(), 0, "F1");
+                c.comp_mut(a).unwrap().num = 0;
+                c.add(Kind::ContactCo, (92, 8).into(), 0, "F1");
+                c.add(Kind::Coil, (104, 8).into(), 0, "KM1");
+                let n = c.add(Kind::ContactNo, (112, 8).into(), 0, "KM1");
+                c.comp_mut(n).unwrap().num = crate::circuit::NO_NUM;
+                c.add(Kind::Motor3, (8, 24).into(), 0, "M1");
+                c.add(Kind::Motor6X, (26, 24).into(), 0, "M2");
+                c.add(Kind::Motor6, (44, 24).into(), 0, "M3");
+                c.add(Kind::Motor12, (62, 24).into(), 0, "M4");
+                c.add(Kind::Motor1S, (90, 24).into(), 0, "M5");
+                c.add(Kind::Motor1D, (104, 24).into(), 0, "M6");
+                let tx = c.add(Kind::Text, (10, 44).into(), 0, "Comando de motor – turma A");
+                c.comp_mut(tx).unwrap().num = 1;
+                c.page = 1;
+                app.circ = c;
             }
             "export" => app.start_export(ExportScope::All, false),
             "exportpdf" => app.start_export(ExportScope::All, true),
@@ -225,7 +252,7 @@ impl App {
             }
             "props" => {
                 app.circ = examples::voltages();
-                if let Some(c) = app.circ.comps.iter().find(|c| c.kind == Kind::Motor6) {
+                if let Some(c) = app.circ.comps.iter().find(|c| c.kind.is_motor6()) {
                     app.sel.insert(c.id);
                 }
                 app.sheet = Sheet::Props;
@@ -291,9 +318,9 @@ impl App {
         }
         // On phones fit the drawn circuit (the whole sheet would be tiny).
         let (x0, y0, x1, y1) = if self.mobile {
-            self.content_bounds().unwrap_or((0.0, 0.0, SHEET_W, SHEET_H))
+            self.content_bounds().unwrap_or((0.0, 0.0, self.circ.sheet().0, self.circ.sheet().1))
         } else {
-            (0.0, 0.0, SHEET_W, SHEET_H)
+            (0.0, 0.0, self.circ.sheet().0, self.circ.sheet().1)
         };
         let (w, h) = ((x1 - x0).max(10.0), (y1 - y0).max(10.0));
         let margin = if self.mobile { 16.0 } else { 40.0 };
@@ -303,6 +330,55 @@ impl App {
             (r.width() - w * self.zoom) / 2.0 - x0 * self.zoom,
             (r.height() - h * self.zoom) / 2.0 - y0 * self.zoom,
         );
+    }
+
+    /// Zoom so that all components and wires fill the view.
+    fn fit_content(&mut self) {
+        let r = self.canvas;
+        let Some((x0, y0, x1, y1)) = self.content_bounds() else {
+            self.fit();
+            return;
+        };
+        let (w, h) = ((x1 - x0).max(6.0), (y1 - y0).max(6.0));
+        let margin = if self.mobile { 16.0 } else { 40.0 };
+        let z = ((r.width() - margin) / w).min((r.height() - margin) / h);
+        self.zoom = z.clamp(2.0, 48.0);
+        self.off = Vec2::new(
+            (r.width() - w * self.zoom) / 2.0 - x0 * self.zoom,
+            (r.height() - h * self.zoom) / 2.0 - y0 * self.zoom,
+        );
+    }
+
+    /// Page size and orientation choices (File → Page, and MORE on phones).
+    pub(crate) fn page_menu(&mut self, ui: &mut egui::Ui) {
+        let mut page = self.circ.page;
+        let mut portrait = self.circ.portrait;
+        ui.label(RichText::new(t("Tamanho da folha", "Sheet size")).strong());
+        ui.horizontal_wrapped(|ui| {
+            for (i, (name, _, _)) in crate::circuit::PAGES.iter().enumerate() {
+                ui.radio_value(&mut page, i as u8, *name);
+            }
+        });
+        ui.label(RichText::new(t("Orientação", "Orientation")).strong());
+        ui.horizontal(|ui| {
+            ui.radio_value(&mut portrait, false, t("Paisagem", "Landscape"));
+            ui.radio_value(&mut portrait, true, t("Retrato", "Portrait"));
+        });
+        if page != self.circ.page || portrait != self.circ.portrait {
+            self.push_undo();
+            self.circ.page = page;
+            self.circ.portrait = portrait;
+            self.fit();
+            let (w, h) = self.circ.sheet();
+            self.status = format!("{} {} – {w:.0}×{h:.0}", t("Folha", "Sheet"), crate::circuit::PAGES[page as usize].0);
+        }
+    }
+
+    /// Load a correction exercise and say what it should do.
+    pub(crate) fn open_correction(&mut self, name: &str, goal: &str, c: Circuit) {
+        self.load_circuit(c, name);
+        self.status = format!("{} {goal}", t("Encontre o erro. Esperado:", "Find the fault. Expected:"));
+        self.help = false;
     }
 
     /// Area covered by components and wires, with a small margin.
@@ -617,6 +693,15 @@ impl App {
                                 }
                             }
                         });
+                        ui.menu_button(t("Correções (encontre o erro)", "Corrections (find the fault)"), |ui| {
+                            for (name, goal, f) in examples::corrections() {
+                                if ui.button(name).on_hover_text(goal).clicked() {
+                                    self.open_correction(name, goal, f());
+                                }
+                            }
+                        });
+                        ui.separator();
+                        ui.menu_button(t("📄 Página", "📄 Page"), |ui| self.page_menu(ui));
                         ui.separator();
                         if ui.button(t("Sair", "Quit")).clicked() {
                             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
@@ -685,6 +770,7 @@ impl App {
                         }
                         ui.checkbox(&mut self.numbers, t("Numeração dos bornes", "Terminal numbers"));
                         ui.checkbox(&mut self.grid, t("Grade", "Grid"));
+                        ui.checkbox(&mut self.sound_on, t("Som da sirene", "Buzzer sound"));
                         ui.separator();
                         ui.label(t("Tema", "Theme"));
                         ui.radio_value(&mut self.theme_mode, ThemeMode::Auto, t("Automático", "Automatic"));
@@ -751,7 +837,7 @@ impl App {
             .filter(|(i, w)| self.sel_w.contains(i) || (pins.contains(&w.a) && pins.contains(&w.b)))
             .map(|(_, w)| w.clone())
             .collect();
-        Some(Circuit { comps, wires, next_id: 0 })
+        Some(Circuit { comps, wires, ..Default::default() })
     }
 
     /// Ctrl+C: keep the selection in the app's clipboard and in the system one
@@ -1039,6 +1125,9 @@ impl App {
                     if tb(ui, "⛶", t("Ajustar à folha", "Fit sheet"), true) {
                         self.fit();
                     }
+                    if tb(ui, "⊡", t("Ajustar aos componentes", "Fit to components"), true) {
+                        self.fit_content();
+                    }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if tb(ui, "❓", t("Como usar", "How to use"), true) {
                             self.help = !self.help;
@@ -1161,24 +1250,31 @@ impl App {
                 card(ui, |ui| {
                     ui.label(RichText::new(c.kind.name()).strong());
                     ui.add_space(4.0);
-                    if !c.kind.is_terminal() {
+                    if c.kind == Kind::Text {
+                        ui.label(t("✏ Texto (editável)", "✏ Text (editable)"));
+                        changed |= editable_field(ui, &mut c.tag, true).changed();
                         ui.horizontal(|ui| {
-                            ui.label(t("Identificação", "Tag"));
-                            let r = ui.add(egui::TextEdit::singleline(&mut c.tag).desired_width(90.0));
+                            ui.label(t("Tamanho", "Size"));
+                            for (i, s) in [t("Pequeno", "Small"), t("Médio", "Medium"), t("Grande", "Large")].iter().enumerate() {
+                                if ui.selectable_label(c.num as usize == i, *s).clicked() {
+                                    c.num = i as u8;
+                                    changed = true;
+                                }
+                            }
+                        });
+                    } else if !c.kind.is_terminal() {
+                        ui.horizontal(|ui| {
+                            ui.label(t("✏ Identificação", "✏ Tag"));
+                            let r = editable_field(ui, &mut c.tag, false);
                             changed |= r.changed();
                             tag_edited |= r.lost_focus() || (r.changed() && !r.has_focus());
-                        });
+                        })
+                        .response
+                        .on_hover_text(t("Clique para editar a identificação", "Click to edit the tag"));
                     }
                     // Buttons / switches: several contacts share one tag (S1), each numbered.
                     if c.kind.operator_family().is_some() {
-                        ui.horizontal(|ui| {
-                            ui.label(t("Contato nº", "Contact no."));
-                            let mut n = c.num as i32 + 1;
-                            if ui.add(egui::DragValue::new(&mut n).range(1..=9)).changed() {
-                                c.num = (n - 1) as u8;
-                                changed = true;
-                            }
-                        });
+                        changed |= contact_num(ui, &mut c.num);
                         ui.label(
                             RichText::new(t(
                                 "Use a mesma identificação (ex.: S1) em vários contatos NA/NF para formar uma botoeira com vários contatos: todos mudam juntos.",
@@ -1204,15 +1300,22 @@ impl App {
                                     }
                                 }
                             });
-                        if c.kind == Kind::Motor6 {
-                            ui.label(
-                                RichText::new(t(
+                        if c.kind.is_motor6() || matches!(c.kind, Kind::Motor12 | Kind::Motor1D) {
+                            let tip = match c.kind {
+                                Kind::Motor12 => t(
+                                    "ΔΔ/YY (paralelo): U1-U5, V1-V5, W1-W5 e U2-U6, V2-V6, W2-W6 juntos; YY: U2-V2-W2 unidos; ΔΔ: U1-W2, V1-U2, W1-V2. Série: U2-U5, V2-V5, W2-W5; Y: U6-V6-W6 unidos; Δ: U1-W6, V1-U6, W1-V6.",
+                                    "Parallel: U1-U5, V1-V5, W1-W5 and U2-U6, V2-V6, W2-W6 tied; YY: U2-V2-W2 tied; ΔΔ: U1-W2, V1-U2, W1-V2. Series: U2-U5, V2-V5, W2-W5; Y: U6-V6-W6 tied; Δ: U1-W6, V1-U6, W1-V6.",
+                                ),
+                                Kind::Motor1D => t(
+                                    "127 V: U1-U3 e U2-U4 juntos (paralelo). 220 V: U2-U3 juntos (série), alimentação em U1 e U4. A bobina auxiliar Z1-Z2 vai em paralelo com uma bobina principal; inverter Z1/Z2 inverte o sentido.",
+                                    "127 V: U1-U3 and U2-U4 tied (parallel). 220 V: U2-U3 tied (series), supply on U1 and U4. Start winding Z1-Z2 goes across one main winding; swapping Z1/Z2 reverses.",
+                                ),
+                                _ => t(
                                     "Ligue U2-V2-W2 juntos para estrela (Y) ou U1-W2, V1-U2, W1-V2 para triângulo (Δ).",
                                     "Tie U2-V2-W2 together for star (Y), or U1-W2, V1-U2, W1-V2 for delta (Δ).",
-                                ))
-                                .small()
-                                .color(subtle(ui)),
-                            );
+                                ),
+                            };
+                            ui.label(RichText::new(tip).small().color(subtle(ui)));
                         }
                         ui.add_space(2.0);
                     }
@@ -1221,7 +1324,11 @@ impl App {
                             ui.label(t("Segue", "Follows"));
                             egui::ComboBox::from_id_salt("link")
                                 .selected_text(c.tag.clone())
+                                .width(ui.available_width().clamp(120.0, 200.0))
+                                .height(4.0 * 30.0 + 8.0)
                                 .show_ui(ui, |ui| {
+                                    ui.set_min_width(220.0);
+                                    ui.style_mut().spacing.button_padding.y = 6.0;
                                     for (tg, k) in &tags {
                                         if c.kind == Kind::Main3 && *k != Kind::Coil {
                                             continue;
@@ -1234,15 +1341,8 @@ impl App {
                                     }
                                 });
                         });
-                        if matches!(c.kind, Kind::ContactNo | Kind::ContactNc) {
-                            ui.horizontal(|ui| {
-                                ui.label(t("Contato nº", "Contact no."));
-                                let mut n = c.num as i32 + 1;
-                                if ui.add(egui::DragValue::new(&mut n).range(1..=9)).changed() {
-                                    c.num = (n - 1) as u8;
-                                    changed = true;
-                                }
-                            });
+                        if c.kind.is_aux_contact() {
+                            changed |= contact_num(ui, &mut c.num);
                         }
                     }
                     if matches!(c.kind, Kind::TimerOn | Kind::TimerOff) {
@@ -1289,7 +1389,7 @@ impl App {
                             && o.tag == tag
                             && o.num == num
                             && (o.kind.operator_family().is_some() && o.kind.operator_family() == kind.operator_family()
-                                || matches!((o.kind, kind), (Kind::ContactNo | Kind::ContactNc, Kind::ContactNo | Kind::ContactNc)))
+                                || matches!((o.kind, kind), (Kind::ContactNo | Kind::ContactNc | Kind::ContactCo, Kind::ContactNo | Kind::ContactNc | Kind::ContactCo)))
                     });
                     if taken {
                         let n = self.circ.free_num(id, kind, &tag);
@@ -1446,7 +1546,7 @@ impl App {
                         None,
                     ));
                 }
-                Kind::Motor1 | Kind::Motor3 | Kind::Motor6 => {
+                k if k.is_motor() => {
                     let (s, mut col) = match c.st.motor {
                         1 => (t("girando ↻", "running ↻"), Color32::from_rgb(0, 110, 230)),
                         -1 => (t("girando ↺", "running ↺"), Color32::from_rgb(0, 110, 230)),
@@ -1459,10 +1559,16 @@ impl App {
                         col = Color32::from_rgb(220, 53, 69);
                     }
                     if c.st.motor != 0 {
-                        if c.kind == Kind::Motor6 {
-                            s.push_str(match c.st.conn {
-                                1 => " Y",
-                                2 => " Δ",
+                        if c.kind.is_motor6() || c.kind == Kind::Motor12 || c.kind == Kind::Motor1D {
+                            s.push_str(match (c.kind, c.st.conn) {
+                                (Kind::Motor12, 1) => " YY",
+                                (Kind::Motor12, 2) => " ΔΔ",
+                                (Kind::Motor12, 3) => " Y",
+                                (Kind::Motor12, 4) => " Δ",
+                                (Kind::Motor1D, 1) => t(" paralelo", " parallel"),
+                                (Kind::Motor1D, 2) => t(" série", " series"),
+                                (_, 1) => " Y",
+                                (_, 2) => " Δ",
                                 _ => "",
                             });
                         }
@@ -1666,8 +1772,9 @@ impl App {
                 if pressed && hovered {
                     let origin = self.place_origin(kind, pos);
                     self.push_undo();
-                    let tag = self.circ.next_tag(kind);
-                    let id = self.circ.add(kind, origin, self.place_rot, &tag);
+                    let tag = if kind == Kind::Text { t("Texto", "Text").to_string() } else { self.circ.next_tag(kind) };
+                    let rot = if kind == Kind::Text { 0 } else { self.place_rot };
+                    let id = self.circ.add(kind, origin, rot, &tag);
                     self.clear_sel();
                     self.sel.insert(id);
                     self.status = format!("{} {}", kind.name(), t("colocado.", "placed."));
@@ -1837,7 +1944,9 @@ impl App {
         if exporting {
             painter.rect_filled(self.canvas, 0.0, Color32::WHITE);
         } else if self.mobile {
+            // Phones: endless grid plus the page frame.
             self.paint_dark_grid(painter, &th);
+            self.paint_frame(painter);
         } else {
             self.paint_sheet(painter, &th);
         }
@@ -1851,7 +1960,8 @@ impl App {
         painter.rect_filled(r, 0.0, th.canvas);
         // Sheet with shadow.
         let tl = self.to_screen(0.0, 0.0);
-        let br = self.to_screen(SHEET_W, SHEET_H);
+        let (sw, sh) = self.circ.sheet();
+        let br = self.to_screen(sw, sh);
         let sheet = Rect::from_min_max(tl, br);
         painter.rect_filled(sheet.translate(Vec2::new(3.0, 4.0)), 4.0, Color32::from_black_alpha(30));
         painter.rect_filled(sheet, 2.0, th.paper);
@@ -1864,7 +1974,7 @@ impl App {
             let (ax, ay) = self.to_world(vis.min);
             let (bx, by) = self.to_world(vis.max);
             let (ax, ay) = ((ax.ceil() as i32).max(0), (ay.ceil() as i32).max(0));
-            let (bx, by) = ((bx.floor() as i32).min(SHEET_W as i32), (by.floor() as i32).min(SHEET_H as i32));
+            let (bx, by) = ((bx.floor() as i32).min(sw as i32), (by.floor() as i32).min(sh as i32));
             let mut y = ay;
             while y <= by {
                 if y % step == 0 {
@@ -1879,9 +1989,15 @@ impl App {
                 y += 1;
             }
         }
-        // Drawing frame with column letters and row numbers.
+        self.paint_frame(painter);
+    }
+
+    /// Page frame with column letters and row numbers (sized to the chosen page).
+    fn paint_frame(&self, painter: &egui::Painter) {
+        let z = self.zoom;
+        let (sw, sh) = self.circ.sheet();
         let fs = Stroke::new(1.2_f32, FRAME_GREEN);
-        let (fx0, fy0, fx1, fy1) = (2.0, 2.0, SHEET_W - 2.0, SHEET_H - 2.0);
+        let (fx0, fy0, fx1, fy1) = (2.0, 2.0, sw - 2.0, sh - 2.0);
         painter.rect_stroke(
             Rect::from_min_max(self.to_screen(fx0, fy0), self.to_screen(fx1, fy1)),
             0.0,
@@ -1890,7 +2006,7 @@ impl App {
         );
         painter.line_segment([self.to_screen(fx0, 4.0), self.to_screen(fx1, 4.0)], fs);
         painter.line_segment([self.to_screen(4.0, 4.0), self.to_screen(4.0, fy1)], fs);
-        let cols = 8;
+        let cols = (((fx1 - 4.0) / 12.0).round() as usize).clamp(4, 26);
         let cw = (fx1 - 4.0) / cols as f32;
         for i in 0..cols {
             let x = 4.0 + cw * i as f32;
@@ -1905,7 +2021,7 @@ impl App {
                 FRAME_GREEN,
             );
         }
-        let rows = 5;
+        let rows = (((fy1 - 4.0) / 13.0).round() as usize).max(3);
         let rh = (fy1 - 4.0) / rows as f32;
         for i in 0..rows {
             let y = 4.0 + rh * i as f32;
@@ -1956,7 +2072,7 @@ impl App {
             }
             let a = self.to_screen(w.a.x as f32, w.a.y as f32);
             let b = self.to_screen(w.b.x as f32, w.b.y as f32);
-            let mut col = th_ink;
+            let mut col = th.wire;
             let mut dashed = false;
             let mut width = ww;
             if sim_on {
@@ -2007,7 +2123,7 @@ impl App {
                 let col = if sim_on {
                     self.sim.nets.pot_at(*p).map(draw::pot_color).unwrap_or(th_dead)
                 } else {
-                    th_ink
+                    th.wire
                 };
                 painter.circle_filled(self.to_screen(p.x as f32, p.y as f32), (z * 0.32).max(2.0), col);
             }
@@ -2403,9 +2519,17 @@ impl eframe::App for App {
         if self.sim.running {
             self.sim.step(&mut self.circ, dt);
         }
+        // Soft siren while a buzzer has voltage.
+        let buzzing = self.sim.running
+            && !self.sim.paused
+            && self.circ.comps.iter().any(|c| c.kind == Kind::Buzzer && c.st.energized);
+        self.siren.set(buzzing && self.sound_on && self.shot.is_none());
         self.keyboard(ctx);
         let was_mobile = self.mobile;
-        self.mobile = self.force_mobile || ctx.screen_rect().width() < 760.0;
+        // Phone layout on narrow screens and whenever the window is portrait
+        // (a browser in portrait looks the same as the phone version).
+        let sr = ctx.screen_rect();
+        self.mobile = self.force_mobile || sr.width() < 760.0 || sr.height() > sr.width();
         if was_mobile != self.mobile {
             self.fitted = false;
         }
@@ -2525,6 +2649,48 @@ fn subtle(ui: &egui::Ui) -> Color32 {
     } else {
         Color32::from_rgb(90, 96, 110)
     }
+}
+
+/// A text field that clearly looks editable: light background, accent border.
+fn editable_field(ui: &mut egui::Ui, text: &mut String, multiline: bool) -> egui::Response {
+    let dark = ui.visuals().dark_mode;
+    ui.scope(|ui| {
+        let v = ui.visuals_mut();
+        v.extreme_bg_color = if dark { Color32::from_rgb(14, 26, 40) } else { Color32::from_rgb(240, 247, 255) };
+        v.widgets.inactive.bg_stroke = Stroke::new(1.5_f32, ACCENT);
+        v.widgets.hovered.bg_stroke = Stroke::new(2.0_f32, ACCENT);
+        let te = if multiline {
+            egui::TextEdit::multiline(text).desired_rows(2).desired_width(f32::INFINITY)
+        } else {
+            egui::TextEdit::singleline(text).desired_width(110.0)
+        };
+        ui.add(te.margin(Margin::symmetric(6, 4)))
+    })
+    .inner
+}
+
+/// "Contato nº" with an optional "–" (no number: terminals 1-2 / 3-4).
+fn contact_num(ui: &mut egui::Ui, num: &mut u8) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label(t("Contato nº", "Contact no."));
+        let mut n: i32 = if *num == crate::circuit::NO_NUM { 0 } else { *num as i32 + 1 };
+        let r = ui.add(
+            egui::DragValue::new(&mut n)
+                .range(0..=9)
+                .custom_formatter(|v, _| if v < 0.5 { "–".to_string() } else { format!("{v:.0}") })
+                .custom_parser(|s| if s.trim() == "-" || s.trim() == "–" { Some(0.0) } else { s.trim().parse().ok() }),
+        );
+        if r.changed() {
+            *num = if n == 0 { crate::circuit::NO_NUM } else { (n - 1) as u8 };
+            changed = true;
+        }
+        r.on_hover_text(t(
+            "– = sem número (terminais 1-2 / 3-4), para quando só há um contato.",
+            "– = no number (terminals 1-2 / 3-4), when there is only one contact.",
+        ));
+    });
+    changed
 }
 
 fn tb(ui: &mut egui::Ui, icon: &str, tip: &str, enabled: bool) -> bool {

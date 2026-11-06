@@ -135,6 +135,22 @@ pub enum Kind {
     Rcd2,
     /// Residual-current device (DR), four poles (3 phases + neutral).
     Rcd4,
+    /// Motor protective circuit breaker, three poles (thermal + magnetic trip, manual operator).
+    MotorBreaker3,
+    /// Six-terminal motor drawn with crossed windings (U1→U2, V1→V2, W1→W2)
+    /// and the bottom terminals in W2 U2 V2 order (delta links are straight).
+    Motor6X,
+    /// Twelve-terminal motor: two half-windings per phase (series / parallel, star / delta).
+    Motor12,
+    /// Single-phase motor: main winding U1-U2 and auxiliary start winding Z1-Z2.
+    Motor1S,
+    /// Single-phase dual-voltage motor: main windings U1-U2 and U3-U4 (parallel / series)
+    /// and auxiliary start winding Z1-Z2.
+    Motor1D,
+    /// Changeover auxiliary contact: common, NC and NO.
+    ContactCo,
+    /// Free text on the drawing.
+    Text,
 }
 
 /// Palette categories, in library order, each with its marker colour
@@ -148,17 +164,23 @@ pub fn categories() -> Vec<(&'static str, Vec<Kind>)> {
 
 type CategoryDef = (&'static str, &'static str, [u8; 3], &'static [Kind]);
 
-pub const CATEGORY_DEFS: [CategoryDef; 8] = {
+pub const CATEGORY_DEFS: [CategoryDef; 9] = {
     use Kind::*;
     [
         ("Fontes", "Sources", [76, 175, 80], &[TermL1, TermL2, TermL3, TermN, TermPE, TermP24, Term0V]),
         ("Bobinas", "Coils", [212, 194, 43], &[Coil, TimerOn, TimerOff]),
-        ("Auxiliares", "Auxiliaries", [47, 134, 214], &[ContactNo, ContactNc]),
+        ("Auxiliares", "Auxiliaries", [47, 134, 214], &[ContactNo, ContactNc, ContactCo]),
         ("Comandos", "Switches", [156, 72, 190], &[PushNo, PushNc, Switch, EStop, LimitNo, LimitNc]),
         ("Cargas", "Loads", [141, 122, 110], &[Lamp, Buzzer]),
         ("Contatores", "Contactors", [47, 198, 214], &[Main3]),
-        ("Proteções", "Protections", [214, 69, 58], &[Fuse, Breaker1, Breaker2, Breaker3, Rcd2, Rcd4, Thermal3]),
-        ("Motores", "Motors", [31, 150, 130], &[Motor1, Motor3, Motor6]),
+        (
+            "Proteções",
+            "Protections",
+            [214, 69, 58],
+            &[Fuse, Breaker1, Breaker2, Breaker3, MotorBreaker3, Rcd2, Rcd4, Thermal3],
+        ),
+        ("Motores", "Motors", [31, 150, 130], &[Motor1, Motor1S, Motor1D, Motor3, Motor6X, Motor6, Motor12]),
+        ("Outros", "Others", [150, 150, 150], &[Text]),
     ]
 };
 
@@ -179,15 +201,46 @@ const PINS_2P: &[(i32, i32)] = &[(0, 0), (3, 0), (0, 6), (3, 6)];
 const PINS_4P: &[(i32, i32)] = &[(0, 0), (3, 0), (6, 0), (9, 0), (0, 6), (3, 6), (6, 6), (9, 6)];
 /// U1 V1 W1 (top), U2 V2 W2 (bottom), PE.
 const PINS_M6: &[(i32, i32)] = &[(0, 0), (3, 0), (6, 0), (0, 11), (3, 11), (6, 11), (9, 0)];
+/// Crossed windings: U1 V1 W1 on top, bottom row W2 U2 V2 (so U2 sits under V1...).
+const PINS_M6X: &[(i32, i32)] = &[(0, 0), (3, 0), (6, 0), (3, 11), (6, 11), (0, 11), (9, 0)];
+/// U1 V1 W1 U2 V2 W2 U5 V5 W5 U6 V6 W6 PE.
+const PINS_M12: &[(i32, i32)] = &[
+    (0, 0),
+    (3, 0),
+    (6, 0),
+    (0, 12),
+    (3, 12),
+    (6, 12),
+    (9, 0),
+    (12, 0),
+    (15, 0),
+    (9, 12),
+    (12, 12),
+    (15, 12),
+    (18, 0),
+];
+/// U1 U2 (main) Z1 Z2 (auxiliary).
+const PINS_M1S: &[(i32, i32)] = &[(0, 0), (0, 8), (4, 0), (4, 8)];
+/// U1 U2 U3 U4 (main halves) Z1 Z2 (auxiliary).
+const PINS_M1D: &[(i32, i32)] = &[(0, 0), (0, 10), (3, 0), (3, 10), (6, 0), (6, 10)];
+/// Common, NC, NO.
+const PINS_CO: &[(i32, i32)] = &[(0, 6), (0, 0), (3, 0)];
+const PINS_0: &[(i32, i32)] = &[];
 
 impl Kind {
     pub fn pins(self) -> &'static [(i32, i32)] {
         use Kind::*;
         match self {
             TermL1 | TermL2 | TermL3 | TermN | TermPE | TermP24 | Term0V => PINS_1,
-            Breaker3 | Thermal3 | Main3 => PINS_3P,
+            Breaker3 | MotorBreaker3 | Thermal3 | Main3 => PINS_3P,
             Motor3 => PINS_M3,
             Motor6 => PINS_M6,
+            Motor6X => PINS_M6X,
+            Motor12 => PINS_M12,
+            Motor1S => PINS_M1S,
+            Motor1D => PINS_M1D,
+            ContactCo => PINS_CO,
+            Text => PINS_0,
             Breaker2 | Rcd2 => PINS_2P,
             Rcd4 => PINS_4P,
             _ => PINS_2,
@@ -199,7 +252,7 @@ impl Kind {
         use Kind::*;
         match self {
             Breaker2 | Rcd2 => 2,
-            Breaker3 | Thermal3 | Main3 => 3,
+            Breaker3 | MotorBreaker3 | Thermal3 | Main3 => 3,
             Rcd4 => 4,
             _ => 1,
         }
@@ -207,7 +260,20 @@ impl Kind {
 
     /// Breakers and DRs: closed when set, open when tripped or switched off.
     pub fn is_breaker(self) -> bool {
-        matches!(self, Kind::Breaker1 | Kind::Breaker2 | Kind::Breaker3 | Kind::Rcd2 | Kind::Rcd4)
+        matches!(
+            self,
+            Kind::Breaker1 | Kind::Breaker2 | Kind::Breaker3 | Kind::MotorBreaker3 | Kind::Rcd2 | Kind::Rcd4
+        )
+    }
+
+    /// Three-phase motors with six windings ends outside (star / delta closed by the student).
+    pub fn is_motor6(self) -> bool {
+        matches!(self, Kind::Motor6 | Kind::Motor6X)
+    }
+
+    pub fn is_motor(self) -> bool {
+        use Kind::*;
+        matches!(self, Motor1 | Motor1S | Motor1D | Motor3 | Motor6 | Motor6X | Motor12)
     }
 
     /// Parts the student operates with a click during the simulation.
@@ -234,9 +300,16 @@ impl Kind {
         match self {
             TermL1 | TermL2 | TermL3 | TermN | TermPE | TermP24 | Term0V => (-1.2, -3.2, 1.2, 0.3),
             Breaker3 => (-5.0, 0.0, 7.0, 6.0),
+            MotorBreaker3 => (-5.6, 0.0, 7.8, 6.0),
             Thermal3 | Main3 => (-1.5, 0.0, 7.5, 6.0),
-            Motor3 => (-0.5, 0.0, 9.5, 9.0),
-            Motor6 => (-0.5, 0.0, 9.5, 11.0),
+            Motor3 => (-2.0, 0.0, 9.5, 10.4),
+            Motor6 | Motor6X => (-2.0, 0.0, 9.5, 11.0),
+            Motor12 => (-1.6, 0.0, 18.5, 12.0),
+            Motor1S => (-2.2, 0.0, 6.2, 8.0),
+            Motor1D => (-2.4, 0.0, 8.4, 10.0),
+            ContactNo | ContactNc => (-3.6, 0.0, 1.6, 6.0),
+            ContactCo => (-3.6, 0.0, 3.6, 6.0),
+            Text => (0.0, -1.0, 6.0, 1.0),
             Breaker1 => (-5.0, 0.0, 1.5, 6.0),
             Breaker2 => (-5.0, 0.0, 4.5, 6.0),
             Rcd2 => (-5.0, 0.0, 4.5, 6.0),
@@ -268,7 +341,12 @@ impl Kind {
 
     /// Contacts and power contacts follow another device by its tag.
     pub fn is_linked(self) -> bool {
-        matches!(self, Kind::ContactNo | Kind::ContactNc | Kind::Main3)
+        matches!(self, Kind::ContactNo | Kind::ContactNc | Kind::ContactCo | Kind::Main3)
+    }
+
+    /// Auxiliary contacts (numbered per device).
+    pub fn is_aux_contact(self) -> bool {
+        matches!(self, Kind::ContactNo | Kind::ContactNc | Kind::ContactCo)
     }
 
     /// Devices whose state can be followed by contacts.
@@ -283,7 +361,7 @@ impl Kind {
         use Kind::*;
         match self {
             Fuse | Thermal3 => "F",
-            Breaker1 | Breaker2 | Breaker3 => "Q",
+            Breaker1 | Breaker2 | Breaker3 | MotorBreaker3 => "Q",
             Rcd2 | Rcd4 => "DR",
             PushNo | PushNc | Switch | EStop => "S",
             LimitNo | LimitNc => "SQ",
@@ -291,7 +369,7 @@ impl Kind {
             TimerOn | TimerOff => "KT",
             Lamp => "H",
             Buzzer => "HA",
-            Motor1 | Motor3 | Motor6 => "M",
+            k if k.is_motor() => "M",
             _ => "",
         }
     }
@@ -307,9 +385,9 @@ impl Kind {
             TermP24 => t("+V CC (12/24 V)", "+V DC (12/24 V)"),
             Term0V => t("0 V CC", "0 V DC"),
             Fuse => t("Fusível", "Fuse"),
-            Breaker1 => t("Disjuntor 1 polo", "Breaker 1-pole"),
-            Breaker3 => t("Disjuntor motor 3 polos", "Motor breaker 3-pole"),
-            Thermal3 => t("Relé térmico", "Overload relay"),
+            Breaker1 => t("Disjuntor termomagnético monopolar (1P)", "Thermal-magnetic breaker 1P"),
+            Breaker3 => t("Disjuntor termomagnético tripolar (3P)", "Thermal-magnetic breaker 3P"),
+            Thermal3 => t("Relé térmico de sobrecarga (3P)", "Thermal overload relay 3P"),
             PushNo => t("Botão NA (liga)", "Push button NO"),
             PushNc => t("Botão NF (desliga)", "Push button NC"),
             Switch => t("Chave seletora", "Selector switch"),
@@ -324,12 +402,19 @@ impl Kind {
             Main3 => t("Contatos principais", "Main contacts"),
             Lamp => t("Lâmpada sinalizadora", "Pilot lamp"),
             Buzzer => t("Sirene", "Buzzer"),
-            Motor1 => t("Motor monofásico / CC", "Motor 1~ / DC"),
-            Motor3 => t("Motor trifásico (fechamento interno)", "Motor 3~ (internal connection)"),
-            Motor6 => t("Motor trifásico 6 terminais (Y/Δ)", "Motor 3~ 6 terminals (Y/Δ)"),
-            Breaker2 => t("Disjuntor 2 polos (bipolar)", "Breaker 2-pole"),
-            Rcd2 => t("DR bipolar (2 polos)", "RCD 2-pole"),
-            Rcd4 => t("DR tetrapolar (4 polos)", "RCD 4-pole"),
+            Motor1 => t("Motor monofásico / CC (2 terminais)", "Motor 1~ / DC (2 terminals)"),
+            Motor3 => t("Motor trifásico 3 terminais (estrela interna)", "Motor 3~ 3 terminals (internal star)"),
+            Motor6 => t("Motor trifásico 6 terminais – bobinas verticais", "Motor 3~ 6 terminals – vertical windings"),
+            Motor6X => t("Motor trifásico 6 terminais (Y/Δ)", "Motor 3~ 6 terminals (Y/Δ)"),
+            Motor12 => t("Motor trifásico 12 terminais (4 tensões)", "Motor 3~ 12 terminals (4 voltages)"),
+            Motor1S => t("Motor monofásico com bobina auxiliar de partida", "Motor 1~ with auxiliary start winding"),
+            Motor1D => t("Motor monofásico 2 tensões (127/220 V)", "Motor 1~ dual voltage (127/220 V)"),
+            Breaker2 => t("Disjuntor termomagnético bipolar (2P)", "Thermal-magnetic breaker 2P"),
+            MotorBreaker3 => t("Disjuntor-motor tripolar (3P)", "Motor protective breaker 3P"),
+            Rcd2 => t("DR bipolar (2P)", "RCD 2P"),
+            Rcd4 => t("DR tetrapolar (4P)", "RCD 4P"),
+            ContactCo => t("Contato auxiliar comutador (NF/NA)", "Aux changeover contact (NC/NO)"),
+            Text => t("Texto", "Text"),
         }
     }
 }
@@ -360,7 +445,8 @@ pub struct St {
     pub burnt: bool,
     /// Lamp brightness 0..1 (dim on undervoltage).
     pub bright: f32,
-    /// 6-terminal motor connection: 1 star, 2 delta, 0 unknown.
+    /// Motor connection found: 6 terminals 1 star / 2 delta; 12 terminals 1 YY, 2 ΔΔ, 3 Y, 4 Δ;
+    /// dual-voltage single-phase 1 parallel / 2 series; 0 unknown.
     pub conn: u8,
 }
 
@@ -415,6 +501,12 @@ pub const MOTOR1_NOMINALS: [(Cur, f32); 4] = [(Cur::Ac, 220.0), (Cur::Ac, 127.0)
 pub const MOTOR3_NOMINALS: [f32; 3] = [380.0, 220.0, 440.0];
 /// Six-terminal motor: (delta, star) line voltages. Each winding is rated for the delta value.
 pub const MOTOR6_NOMINALS: [(f32, f32); 3] = [(220.0, 380.0), (380.0, 660.0), (127.0, 220.0)];
+/// Twelve-terminal motor: (ΔΔ, YY, Δ, Y) voltages; each half-winding is rated for the ΔΔ value.
+pub const MOTOR12_NOMINALS: [(f32, f32, f32, f32); 1] = [(220.0, 380.0, 440.0, 760.0)];
+/// Single-phase motor with start winding (main and auxiliary rated the same).
+pub const MOTOR1S_NOMINALS: [f32; 2] = [220.0, 127.0];
+/// Dual-voltage single-phase motor: (parallel, series) supply voltage.
+pub const MOTOR1D_NOMINALS: [(f32, f32); 1] = [(127.0, 220.0)];
 
 fn vtxt(v: f32) -> String {
     format!("{v:.0} V")
@@ -446,10 +538,16 @@ pub fn volt_choices(k: Kind) -> Vec<String> {
             .map(|(c, v)| format!("{} {}", vtxt(*v), cur_txt(*c)))
             .collect(),
         Motor3 => MOTOR3_NOMINALS.iter().map(|v| format!("{} CA ({})", vtxt(*v), t("entre fases", "line"))).collect(),
-        Motor6 => MOTOR6_NOMINALS
+        Motor6 | Motor6X => MOTOR6_NOMINALS
             .iter()
             .map(|(d, y)| format!("Δ {d:.0} V / Y {y:.0} V"))
             .collect(),
+        Motor12 => MOTOR12_NOMINALS
+            .iter()
+            .map(|(a, b, c, d)| format!("ΔΔ {a:.0} / YY {b:.0} / Δ {c:.0} / Y {d:.0} V"))
+            .collect(),
+        Motor1S => MOTOR1S_NOMINALS.iter().map(|v| format!("{} CA", vtxt(*v))).collect(),
+        Motor1D => MOTOR1D_NOMINALS.iter().map(|(p, s)| format!("{p:.0} V {} / {s:.0} V {}", t("paralelo", "parallel"), t("série", "series"))).collect(),
         _ => vec![],
     }
 }
@@ -472,7 +570,10 @@ pub fn nominal(c: &Comp) -> Option<(Cur, f32)> {
         Lamp | Buzzer | Coil | TimerOn | TimerOff => LOAD_NOMINALS.get(i).or(LOAD_NOMINALS.first()).copied(),
         Motor1 => MOTOR1_NOMINALS.get(i).or(MOTOR1_NOMINALS.first()).copied(),
         Motor3 => Some((Cur::Ac, *MOTOR3_NOMINALS.get(i).unwrap_or(&MOTOR3_NOMINALS[0]))),
-        Motor6 => Some((Cur::Ac, MOTOR6_NOMINALS.get(i).unwrap_or(&MOTOR6_NOMINALS[0]).0)),
+        Motor6 | Motor6X => Some((Cur::Ac, MOTOR6_NOMINALS.get(i).unwrap_or(&MOTOR6_NOMINALS[0]).0)),
+        Motor12 => Some((Cur::Ac, MOTOR12_NOMINALS.get(i).unwrap_or(&MOTOR12_NOMINALS[0]).0)),
+        Motor1S => Some((Cur::Ac, *MOTOR1S_NOMINALS.get(i).unwrap_or(&MOTOR1S_NOMINALS[0]))),
+        Motor1D => Some((Cur::Ac, MOTOR1D_NOMINALS.get(i).unwrap_or(&MOTOR1D_NOMINALS[0]).0)),
         _ => None,
     }
 }
@@ -483,10 +584,12 @@ pub fn volt_badge(c: &Comp) -> Option<String> {
     let i = c.volt as usize;
     match c.kind {
         TermL1 | TermL2 | TermL3 => AC_SYSTEMS.get(i).map(|(f, l)| format!("{f:.0}/{l:.0}V")),
-        Lamp | Buzzer | Coil | TimerOn | TimerOff | Motor1 | Motor3 => nominal(c).map(|(k, v)| {
+        Lamp | Buzzer | Coil | TimerOn | TimerOff | Motor1 | Motor3 | Motor1S => nominal(c).map(|(k, v)| {
             format!("{v:.0}V{}", if k == Cur::Ac { "~" } else { "=" })
         }),
-        Motor6 => MOTOR6_NOMINALS.get(i).map(|(d, y)| format!("Δ{d:.0}/Y{y:.0}V")),
+        Motor6 | Motor6X => MOTOR6_NOMINALS.get(i).map(|(d, y)| format!("Δ{d:.0}/Y{y:.0}V")),
+        Motor12 => Some("220/380/440/760V".into()),
+        Motor1D => Some("127/220V".into()),
         _ => None,
     }
 }
@@ -503,8 +606,20 @@ impl Comp {
     pub fn pins(&self) -> Vec<P> {
         (0..self.kind.pins().len()).map(|i| self.pin(i)).collect()
     }
+    /// Letter height of a text item, in grid units (size chosen in the properties).
+    pub fn text_size(&self) -> f32 {
+        [1.3, 1.9, 2.8][(self.num as usize).min(2)]
+    }
+
     /// World-space bounding box in grid units.
     pub fn world_bounds(&self) -> (f32, f32, f32, f32) {
+        if self.kind == Kind::Text {
+            let h = self.text_size();
+            let lines: Vec<&str> = self.tag.split('\n').collect();
+            let w = lines.iter().map(|l| l.chars().count()).max().unwrap_or(1).max(1) as f32 * 0.58 * h;
+            let (x, y) = (self.pos.x as f32, self.pos.y as f32);
+            return (x, y - h * 0.6, x + w, y - h * 0.6 + h * 1.25 * lines.len() as f32);
+        }
         let (a, b, c, d) = self.kind.bounds();
         let pts = [(a, b), (c, b), (a, d), (c, d)];
         let mut mn = (f32::MAX, f32::MAX);
@@ -551,9 +666,28 @@ pub struct Circuit {
     pub wires: Vec<Wire>,
     #[serde(default)]
     pub next_id: u32,
+    /// Page size: 0 A4, 1 A3, 2 A2, 3 A1.
+    #[serde(default)]
+    pub page: u8,
+    /// Portrait page (landscape otherwise).
+    #[serde(default)]
+    pub portrait: bool,
 }
 
+/// Page sizes (grid units, landscape): A4 … A1.
+pub const PAGES: [(&str, f32, f32); 4] = [("A4", 100.0, 70.0), ("A3", 141.0, 100.0), ("A2", 200.0, 141.0), ("A1", 283.0, 200.0)];
+
 impl Circuit {
+    /// Sheet width and height in grid units.
+    pub fn sheet(&self) -> (f32, f32) {
+        let (_, w, h) = PAGES[(self.page as usize).min(PAGES.len() - 1)];
+        if self.portrait {
+            (h, w)
+        } else {
+            (w, h)
+        }
+    }
+
     pub fn add(&mut self, kind: Kind, pos: P, rot: u8, tag: &str) -> u32 {
         self.next_id = self.next_id.max(self.comps.iter().map(|c| c.id + 1).max().unwrap_or(0));
         let id = self.next_id;
@@ -616,7 +750,7 @@ impl Circuit {
     /// (auxiliary contacts of a coil, or contacts of one button / switch).
     pub fn free_num(&self, except: u32, kind: Kind, tag: &str) -> u8 {
         let group = |k: Kind| -> u8 {
-            if matches!(k, Kind::ContactNo | Kind::ContactNc) {
+            if k.is_aux_contact() {
                 100
             } else {
                 k.operator_family().unwrap_or(200)
@@ -671,29 +805,56 @@ impl Circuit {
     }
 }
 
+/// `num` value meaning "no contact number" (terminals just 1-2 / 3-4).
+pub const NO_NUM: u8 = 255;
+
+/// Terminal names of the motors that draw them inside their own symbol.
+pub fn motor_terminals(k: Kind) -> &'static [&'static str] {
+    use Kind::*;
+    match k {
+        Motor3 => &["U1", "V1", "W1", "PE"],
+        Motor6 | Motor6X => &["U1", "V1", "W1", "U2", "V2", "W2", "PE"],
+        Motor12 => &["U1", "V1", "W1", "U2", "V2", "W2", "U5", "V5", "W5", "U6", "V6", "W6", "PE"],
+        Motor1S => &["U1", "U2", "Z1", "Z2"],
+        Motor1D => &["U1", "U2", "U3", "U4", "Z1", "Z2"],
+        _ => &[],
+    }
+}
+
 /// Terminal numbers printed next to a component's pins.
 pub fn pin_numbers(c: &Comp, linked: Option<Kind>) -> Vec<String> {
     use Kind::*;
-    let n = c.num as usize + 1;
+    let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    // Contact number prefix: "1" → 13-14, "2" → 23-24…; none → 3-4 / 1-2.
+    let n = if c.num == NO_NUM { String::new() } else { (c.num as usize + 1).to_string() };
+    let tn = if c.num == NO_NUM { String::new() } else { (c.num as usize + 5).to_string() };
     let timer = matches!(linked, Some(TimerOn) | Some(TimerOff));
+    let thermal = linked == Some(Thermal3);
     match c.kind {
-        ContactNo if timer => vec![format!("{}7", n + 5), format!("{}8", n + 5)],
-        ContactNc if timer => vec![format!("{}5", n + 4), format!("{}6", n + 4)],
+        // Overload relay auxiliary contacts: 95-96 (NC), 97-98 (NO), 95-96-98 (changeover).
+        ContactNc if thermal => v(&["95", "96"]),
+        ContactNo if thermal => v(&["97", "98"]),
+        ContactCo if thermal => v(&["95", "96", "98"]),
+        ContactNo if timer => {
+            let p = if c.num == NO_NUM { String::new() } else { (c.num as usize + 6).to_string() };
+            vec![format!("{p}7"), format!("{p}8")]
+        }
+        ContactNc if timer => vec![format!("{tn}5"), format!("{tn}6")],
+        ContactCo if timer => vec![format!("{tn}5"), format!("{tn}6"), format!("{tn}8")],
         ContactNo => vec![format!("{n}3"), format!("{n}4")],
         ContactNc => vec![format!("{n}1"), format!("{n}2")],
+        ContactCo => vec![format!("{n}1"), format!("{n}2"), format!("{n}4")],
         // Button / switch contacts: contact 1 = 13-14 or 11-12, contact 2 = 23-24 or 21-22...
         PushNo | Switch | LimitNo => vec![format!("{n}3"), format!("{n}4")],
         PushNc | EStop | LimitNc => vec![format!("{n}1"), format!("{n}2")],
-        Coil | TimerOn | TimerOff => vec!["A1".into(), "A2".into()],
-        Lamp | Buzzer => vec!["X1".into(), "X2".into()],
-        Fuse | Breaker1 => vec!["1".into(), "2".into()],
-        Breaker2 => ["1", "3", "2", "4"].iter().map(|s| s.to_string()).collect(),
-        Rcd2 => ["1", "N", "2", "N"].iter().map(|s| s.to_string()).collect(),
-        Rcd4 => ["1", "3", "5", "N", "2", "4", "6", "N"].iter().map(|s| s.to_string()).collect(),
-        Breaker3 | Main3 | Thermal3 => ["1", "3", "5", "2", "4", "6"].iter().map(|s| s.to_string()).collect(),
-        Motor3 => ["U1", "V1", "W1", "PE"].iter().map(|s| s.to_string()).collect(),
-        Motor6 => ["U1", "V1", "W1", "U2", "V2", "W2", "PE"].iter().map(|s| s.to_string()).collect(),
-        Motor1 => vec!["U1".into(), "U2".into()],
+        Coil | TimerOn | TimerOff => v(&["A1", "A2"]),
+        Lamp | Buzzer => v(&["X1", "X2"]),
+        Fuse | Breaker1 => v(&["1", "2"]),
+        Breaker2 => v(&["1", "3", "2", "4"]),
+        Rcd2 => v(&["1", "N", "2", "N"]),
+        Rcd4 => v(&["1", "3", "5", "N", "2", "4", "6", "N"]),
+        Breaker3 | MotorBreaker3 | Main3 | Thermal3 => v(&["1", "3", "5", "2", "4", "6"]),
+        Motor1 => v(&["U1", "U2"]),
         _ => vec![],
     }
 }

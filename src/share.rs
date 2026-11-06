@@ -10,7 +10,7 @@ use crate::circuit::{Circuit, Kind, P};
 pub const PUBLIC_URL: &str = "https://jorgewattes.github.io/simueletro/";
 
 /// Stable numbering of the parts inside links. Only ever append to this list.
-const KINDS: [Kind; 31] = [
+const KINDS: [Kind; 38] = [
     Kind::TermL1,
     Kind::TermL2,
     Kind::TermL3,
@@ -42,6 +42,13 @@ const KINDS: [Kind; 31] = [
     Kind::Breaker2,
     Kind::Rcd2,
     Kind::Rcd4,
+    Kind::MotorBreaker3,
+    Kind::Motor6X,
+    Kind::Motor12,
+    Kind::Motor1S,
+    Kind::Motor1D,
+    Kind::ContactCo,
+    Kind::Text,
 ];
 
 fn kind_index(k: Kind) -> usize {
@@ -49,12 +56,21 @@ fn kind_index(k: Kind) -> usize {
 }
 
 /// Compact text: `1~comp;comp…~wire;wire…`, comp = `kind,x,y,rot,tag[,preset×10,color,num[,volt]]`.
+/// Tags and texts may hold separators and line breaks: escape them.
+fn esc(s: &str) -> String {
+    s.replace('%', "%25").replace(',', "%2C").replace(';', "%3B").replace('~', "%7E").replace('\n', "%0A")
+}
+
+fn unesc(s: &str) -> String {
+    s.replace("%0A", "\n").replace("%7E", "~").replace("%3B", ";").replace("%2C", ",").replace("%25", "%")
+}
+
 fn to_text(c: &Circuit) -> String {
     let comps: Vec<String> = c
         .comps
         .iter()
         .map(|p| {
-            let tag: String = p.tag.chars().filter(|ch| !",;~".contains(*ch)).collect();
+            let tag = esc(&p.tag);
             let mut s = format!("{},{},{},{},{}", kind_index(p.kind), p.pos.x, p.pos.y, p.rot, tag);
             let preset = (p.preset * 10.0).round() as i64;
             if preset != 30 || p.color != 0 || p.num != 0 || p.volt != 0 {
@@ -71,7 +87,11 @@ fn to_text(c: &Circuit) -> String {
         .iter()
         .map(|w| format!("{},{},{},{}", w.a.x, w.a.y, w.b.x, w.b.y))
         .collect();
-    format!("1~{}~{}", comps.join(";"), wires.join(";"))
+    let mut out = format!("1~{}~{}", comps.join(";"), wires.join(";"));
+    if c.page != 0 || c.portrait {
+        out.push_str(&format!("~p{},{}", c.page, c.portrait as u8));
+    }
+    out
 }
 
 fn from_text(s: &str) -> Option<Circuit> {
@@ -81,6 +101,7 @@ fn from_text(s: &str) -> Option<Circuit> {
     }
     let comps = parts.next().unwrap_or("");
     let wires = parts.next().unwrap_or("");
+    let page = parts.next().unwrap_or("");
     let mut c = Circuit::default();
     for item in comps.split(';').filter(|x| !x.is_empty()) {
         let f: Vec<&str> = item.split(',').collect();
@@ -90,7 +111,7 @@ fn from_text(s: &str) -> Option<Circuit> {
         let kind = *KINDS.get(f[0].parse::<usize>().ok()?)?;
         let pos = P::new(f[1].parse().ok()?, f[2].parse().ok()?);
         let rot: u8 = f[3].parse().ok()?;
-        let id = c.add(kind, pos, rot % 4, f[4]);
+        let id = c.add(kind, pos, rot % 4, &unesc(f[4]));
         let comp = c.comp_mut(id)?;
         if f.len() >= 8 {
             comp.preset = (f[5].parse::<i64>().ok()? as f32 / 10.0).clamp(0.1, 600.0);
@@ -109,6 +130,11 @@ fn from_text(s: &str) -> Option<Circuit> {
             return None;
         }
         c.wire((v[0], v[1]), (v[2], v[3]));
+    }
+    if let Some(p) = page.strip_prefix('p') {
+        let v: Vec<u8> = p.split(',').filter_map(|x| x.parse().ok()).collect();
+        c.page = v.first().copied().unwrap_or(0).min(3);
+        c.portrait = v.get(1).copied().unwrap_or(0) == 1;
     }
     Some(c)
 }

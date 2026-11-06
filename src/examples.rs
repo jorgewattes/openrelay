@@ -1,6 +1,6 @@
 //! Ready-made circuits shown in Arquivo → Exemplos.
 
-use crate::circuit::{t, Circuit, Kind::*};
+use crate::circuit::{t, Circuit, Kind, Kind::*, Wire, P};
 
 pub fn list() -> Vec<(&'static str, fn() -> Circuit)> {
     vec![
@@ -21,7 +21,7 @@ pub fn direct_start() -> Circuit {
     c.add(TermL2, (13, 10).into(), 0, "");
     c.add(TermL3, (16, 10).into(), 0, "");
     c.add(TermPE, (19, 10).into(), 0, "");
-    c.add(Breaker3, (10, 16).into(), 0, "Q1");
+    c.add(MotorBreaker3, (10, 16).into(), 0, "Q1");
     c.add(Main3, (10, 30).into(), 0, "KM1");
     c.add(Motor3, (10, 44).into(), 0, "M1");
     for x in [10, 13, 16] {
@@ -77,7 +77,7 @@ pub fn reversing() -> Circuit {
     c.add(TermL2, (13, 8).into(), 0, "");
     c.add(TermL3, (16, 8).into(), 0, "");
     c.add(TermPE, (19, 8).into(), 0, "");
-    c.add(Breaker3, (10, 12).into(), 0, "Q1");
+    c.add(MotorBreaker3, (10, 12).into(), 0, "Q1");
     for x in [10, 13, 16] {
         c.wire((x, 8), (x, 12));
         c.wire((x, 18), (x, 26));
@@ -194,9 +194,9 @@ pub fn voltages() -> Circuit {
     c.add(TermL2, (13, 6).into(), 0, "");
     c.add(TermL3, (16, 6).into(), 0, "");
     c.add(TermPE, (19, 6).into(), 0, "");
-    c.add(Breaker3, (10, 10).into(), 0, "Q1");
+    c.add(MotorBreaker3, (10, 10).into(), 0, "Q1");
     c.add(Main3, (10, 20).into(), 0, "KM1");
-    c.add(Motor6, (10, 32).into(), 0, "M1");
+    c.add(Motor6X, (10, 32).into(), 0, "M1");
     for x in [10, 13, 16] {
         c.wire((x, 6), (x, 10));
         c.wire((x, 16), (x, 20));
@@ -254,9 +254,9 @@ pub fn star_delta() -> Circuit {
     c.add(TermL2, (9, 4).into(), 0, "");
     c.add(TermL3, (12, 4).into(), 0, "");
     c.add(TermPE, (15, 4).into(), 0, "");
-    c.add(Breaker3, (6, 7).into(), 0, "Q1");
+    c.add(MotorBreaker3, (6, 7).into(), 0, "Q1");
     c.add(Main3, (6, 17).into(), 0, "KM1");
-    let m = c.add(Motor6, (6, 30).into(), 0, "M1");
+    let m = c.add(Motor6X, (6, 30).into(), 0, "M1");
     c.comp_mut(m).unwrap().volt = 1; // Δ380 / Y660 V
     for x in [6, 9, 12] {
         c.wire((x, 4), (x, 7));
@@ -272,19 +272,21 @@ pub fn star_delta() -> Circuit {
     c.wire((25, 15), (25, 19));
     c.wire((12, 16), (28, 16));
     c.wire((28, 16), (28, 19));
-    c.wire((22, 25), (22, 46));
-    c.wire((22, 46), (12, 46));
+    // Crossed-winding motor: bottom terminals W2 U2 V2 sit under U1 V1 W1, so the
+    // delta links go straight down: L1→W2 (x 6), L2→U2 (x 9), L3→V2 (x 12).
+    c.wire((28, 25), (28, 46));
+    c.wire((28, 46), (12, 46));
     c.wire((12, 46), (12, 41));
     c.wire((25, 25), (25, 48));
-    c.wire((25, 48), (6, 48));
-    c.wire((6, 48), (6, 41));
-    c.wire((28, 25), (28, 50));
-    c.wire((28, 50), (9, 50));
-    c.wire((9, 50), (9, 41));
+    c.wire((25, 48), (9, 48));
+    c.wire((9, 48), (9, 41));
+    c.wire((22, 25), (22, 50));
+    c.wire((22, 50), (6, 50));
+    c.wire((6, 50), (6, 41));
     // Star contactor KM2 joins U2, V2 and W2.
     c.add(Main3, (6, 53).into(), 0, "KM2");
-    c.wire((6, 48), (6, 53));
-    c.wire((9, 50), (9, 53));
+    c.wire((6, 50), (6, 53));
+    c.wire((9, 48), (9, 53));
     c.wire((12, 46), (12, 53));
     c.wire((6, 59), (9, 59));
     c.wire((9, 59), (12, 59));
@@ -334,7 +336,110 @@ pub fn star_delta() -> Circuit {
     c.wire((40, 62), (72, 62));
     c.wire((40, 62), (40, 64));
     c.add(TermN, (40, 64).into(), 2, "");
-    shift_left_part(&mut c, 3);
+    shift_left_part(&mut c, 5);
     shift_down(&mut c, 3);
+    c
+}
+
+/// Correction exercises: the examples with one subtle fault each that stops
+/// them working. (name, what it should do, circuit)
+pub fn corrections() -> Vec<(&'static str, &'static str, fn() -> Circuit)> {
+    vec![
+        (
+            t("Correção 1 – Partida direta (selo)", "Correction 1 – Direct start (holding)"),
+            t(
+                "apertar S2 liga o motor e ele continua ligado ao soltar; S1 desliga.",
+                "pressing S2 starts the motor and it keeps running when released; S1 stops it.",
+            ),
+            fault_seal as fn() -> Circuit,
+        ),
+        (
+            t("Correção 2 – Partida direta (motor)", "Correction 2 – Direct start (motor)"),
+            t("com KM1 ligado, o motor M1 deve girar.", "with KM1 on, motor M1 must turn."),
+            fault_main as fn() -> Circuit,
+        ),
+        (
+            t("Correção 3 – Reversão", "Correction 3 – Reversing"),
+            t(
+                "S1 gira o motor num sentido e S2 no sentido contrário.",
+                "S1 turns the motor one way and S2 the other way.",
+            ),
+            fault_reverse as fn() -> Circuit,
+        ),
+        (
+            t("Correção 4 – Lâmpada temporizada", "Correction 4 – Timed lamp"),
+            t(
+                "a lâmpada H1 acende 5 s depois de apertar S1.",
+                "lamp H1 lights 5 s after pressing S1.",
+            ),
+            fault_timer as fn() -> Circuit,
+        ),
+        (
+            t("Correção 5 – Estrela-triângulo", "Correction 5 – Star-delta"),
+            t(
+                "o motor parte em estrela (KM2) e após 5 s passa para triângulo (KM3).",
+                "the motor starts in star (KM2) and after 5 s changes to delta (KM3).",
+            ),
+            fault_star_delta as fn() -> Circuit,
+        ),
+    ]
+}
+
+/// Holding contact tagged KM2 instead of KM1: the motor only runs while S2 is held.
+fn fault_seal() -> Circuit {
+    let mut c = direct_start();
+    if let Some(k) = c.comps.iter_mut().find(|k| k.kind == ContactNo && k.tag == "KM1" && k.pos.y == 40) {
+        k.tag = "KM2".into();
+    }
+    c
+}
+
+/// Main contacts follow "KM" (no such coil): the coil works but the motor never turns.
+fn fault_main() -> Circuit {
+    let mut c = direct_start();
+    if let Some(k) = c.comps.iter_mut().find(|k| k.kind == Main3) {
+        k.tag = "KM".into();
+    }
+    c
+}
+
+/// KM2's supply taps are crossed too, so the phase swap cancels out:
+/// both contactors turn the motor the same way.
+fn fault_reverse() -> Circuit {
+    let mut c = reversing();
+    let s = |x: i32, y: i32| P::new(x + 4, y);
+    let drop = [
+        (s(10, 22), s(24, 22)),
+        (s(24, 22), s(24, 26)),
+        (s(16, 20), s(30, 20)),
+        (s(30, 20), s(30, 26)),
+    ];
+    c.wires.retain(|w| !drop.iter().any(|(a, b)| (w.a == *a && w.b == *b) || (w.a == *b && w.b == *a)));
+    for (a, b) in [
+        (s(10, 22), s(30, 22)),
+        (s(30, 22), s(30, 26)),
+        (s(16, 20), s(24, 20)),
+        (s(24, 20), s(24, 26)),
+    ] {
+        c.wires.push(Wire { a, b });
+    }
+    c
+}
+
+/// The timer contact is NC instead of NO: the lamp lights at once and goes out after 5 s.
+fn fault_timer() -> Circuit {
+    let mut c = timed_lamp();
+    if let Some(k) = c.comps.iter_mut().find(|k| k.kind == ContactNo && k.tag == "KT1") {
+        k.kind = ContactNc;
+    }
+    c
+}
+
+/// KT1's contacts are swapped: it starts in delta and drops to star after 5 s.
+fn fault_star_delta() -> Circuit {
+    let mut c = star_delta();
+    for k in c.comps.iter_mut().filter(|k| k.tag == "KT1" && k.kind.is_aux_contact()) {
+        k.kind = if k.kind == Kind::ContactNo { ContactNc } else { ContactNo };
+    }
     c
 }

@@ -280,6 +280,14 @@ impl App {
             }
         }
         ui.add_space(6.0);
+        ui.label(RichText::new(t("Correções (encontre o erro)", "Corrections (find the fault)")).strong().color(text_col()));
+        for (name, goal, f) in examples::corrections() {
+            if item(ui, format!("🔎  {name}")) {
+                self.open_correction(name, goal, f());
+                self.sheet = Sheet::None;
+            }
+        }
+        ui.add_space(6.0);
         if item(ui, format!("❓  {}", t("Como usar", "How to use"))) {
             self.help = true;
             self.sheet = Sheet::None;
@@ -302,9 +310,19 @@ impl App {
         {
             self.sheet = Sheet::Props;
         }
+        if ui
+            .add(egui::Button::new(format!("⊡  {}", t("Ajustar aos componentes", "Fit to components"))).min_size(full))
+            .clicked()
+        {
+            self.fit_content();
+            self.sheet = Sheet::None;
+        }
+        ui.add_space(6.0);
+        self.page_menu(ui);
         ui.add_space(6.0);
         ui.checkbox(&mut self.numbers, t("Numeração dos bornes", "Terminal numbers"));
         ui.checkbox(&mut self.grid, t("Grade", "Grid"));
+        ui.checkbox(&mut self.sound_on, t("Som da sirene", "Buzzer sound"));
         ui.horizontal_wrapped(|ui| {
             ui.label(t("Tema", "Theme"));
             ui.radio_value(&mut self.theme_mode, ThemeMode::Auto, t("Automático (do aparelho)", "Automatic (device)"));
@@ -378,6 +396,15 @@ impl App {
                             );
                             if zoom_btn(ui, "+") {
                                 self.zoom_at(1.25, c);
+                            }
+                            let (r, _) = ui.allocate_exact_size(Vec2::new(1.0, 44.0), Sense::hover());
+                            ui.painter().line_segment(
+                                [Pos2::new(r.center().x, r.top() + 10.0), Pos2::new(r.center().x, r.bottom() - 10.0)],
+                                Stroke::new(1.0_f32, panel_line()),
+                            );
+                            // Fit the view to the components.
+                            if zoom_btn(ui, "⊡") {
+                                self.fit_content();
                             }
                         });
                     });
@@ -493,7 +520,7 @@ impl App {
             }
         };
         let r = self.canvas;
-        let max_w = (r.width() - 140.0).max(120.0);
+        let max_w = (r.width() - 230.0).max(120.0);
         let g = painter.layout(text, FontId::proportional(12.5), text_col(), max_w);
         let size = g.size() + Vec2::new(20.0, 10.0);
         let pos = Pos2::new(r.left() + 10.0, r.bottom() - size.y - 12.0);

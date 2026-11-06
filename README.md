@@ -21,20 +21,22 @@ O SimuEletro é uma releitura moderna dos simuladores clássicos de comandos el�
 ## Funcionalidades
 
 ### Desenho
-- Folha com grade, moldura, colunas (A–H) e linhas (1–5), como numa folha de projeto.
+- Folha com grade, moldura, colunas e linhas, como numa folha de projeto: **A4, A3, A2 ou A1**, em **paisagem ou retrato** (Arquivo → Página; MAIS no celular).
+- **Texto livre** no diagrama (categoria Outros), com três tamanhos.
 - **Componentes organizados em categorias** (cada uma com sua cor na biblioteca):
   - **Fontes** (verde): fases L1, L2, L3, neutro N, terra PE, +24 V e 0 V CC.
   - **Bobinas** (amarelo): bobina de contator, temporizador ao trabalho e ao repouso.
-  - **Auxiliares** (azul): contatos auxiliares NA e NF.
+  - **Auxiliares** (azul): contatos auxiliares NA, NF e **comutador** (comum → NF/NA). Ligados a um relé térmico, os contatos usam **95-96** (NF), **97-98** (NA) e **95-96-98** (comutador).
   - **Comandos** (roxo): botão NA (liga), botão NF (desliga), chave seletora, emergência e fins de curso NA/NF.
   - **Cargas** (marrom): lâmpada sinalizadora (5 cores) e sirene.
   - **Contatores** (ciano): contatos principais de 3 polos.
-  - **Proteções** (vermelho): fusível, disjuntor de 1 e 2 polos, disjuntor-motor de 3 polos, **DR bipolar e tetrapolar** (desarma com fuga de corrente para a terra ou com um clique, como o botão de teste) e relé térmico.
-  - **Motores** (verde-escuro): motor monofásico/CC e motor trifásico.
+  - **Proteções** (vermelho): fusível, **disjuntores termomagnéticos** monopolar, bipolar e tripolar (disparo térmico e magnético), **disjuntor-motor tripolar** (elemento térmico em cada polo e manopla), **DR bipolar e tetrapolar** (desarma com fuga de corrente para a terra ou com um clique, como o botão de teste) e relé térmico de sobrecarga.
+  - **Motores** (verde-escuro), com bobinas coloridas (U azul, V vermelha, W preta) e nomes dos terminais: monofásico/CC; monofásico com **bobina auxiliar de partida** (U1-U2, Z1-Z2); monofásico **2 tensões** 127/220 V (U1-U2, U3-U4 e auxiliar Z1-Z2); trifásico de **3 terminais** com estrela interna; trifásico de **6 terminais** com bobinas cruzadas (W2 U2 V2 embaixo, triângulo com pontes retas) ou **verticais**; e trifásico de **12 terminais** (ΔΔ 220 / YY 380 / Δ 440 / Y 760 V).
 - Ligação por fios com cantos automáticos, junções marcadas e bornes livres destacados.
 - Identificação automática (KM1, S1, H1, Q1…) e numeração dos bornes (13-14, 21-22, A1-A2, 1-2…).
 - Contatos **seguem** a bobina, o temporizador ou o disjuntor com a mesma identificação.
-- **Botoeiras com vários contatos:** dê a mesma identificação (ex.: S1) a vários contatos NA/NF e escolha o **Contato nº** nas propriedades (13-14, 21-22, 33-34…); na simulação todos mudam juntos.
+- **Botoeiras com vários contatos:** dê a mesma identificação (ex.: S1) a vários contatos NA/NF e escolha o **Contato nº** nas propriedades (13-14, 21-22, 33-34…); na simulação todos mudam juntos. Use **–** no Contato nº para omitir o número (terminais 1-2 / 3-4).
+- Fios com cor própria, diferente dos símbolos.
 - Selecionar, mover (os fios acompanham), girar, excluir, desfazer e refazer.
 - **Copiar, recortar e colar** (Ctrl+C, Ctrl+X, Ctrl+V) e duplicar (Ctrl+D): o trecho colado vai para onde está o mouse; bobinas e botões colados ganham nova identificação (KM1 → KM2) e os contatos colados junto passam a seguir a nova bobina. Também funciona entre duas janelas/abas do SimuEletro.
 
@@ -45,10 +47,12 @@ O SimuEletro é uma releitura moderna dos simuladores clássicos de comandos el�
 - Motor trifásico gira no sentido da sequência de fases (inverter duas fases inverte o sentido) e avisa quando falta uma fase.
 - **Detecção de curto-circuito**, com aviso e destaque no trecho com problema.
 - Painel de estado com contatores, temporizadores, motores e lâmpadas.
+- **Sirene com som** suave (pode ser desligado em Ver → Som da sirene).
+- Motores monofásicos só partem com a bobina auxiliar ligada; inverter Z1/Z2 inverte o sentido.
 
 ### Telas
 - **Computador:** menus, barra de ferramentas, lista de componentes à esquerda e propriedades à direita.
-- **Celular / tela estreita** (tema escuro, no estilo do app SimuRelay): barra superior com **MENU · PEÇAS · SIMULAR · FIO · MAIS · DESFAZER · REFAZER**; a biblioteca **PEÇAS** abre por cima da folha com um seletor de **categorias coloridas** e uma grade de símbolos. Com uma peça selecionada, a barra muda para **VALORES · GIRAR · COPIAR · EXCLUIR**. Há botões de zoom **− / +** no canto; arraste com um dedo para mover a folha, use a pinça para o zoom e **arraste de um borne a outro para ligar um fio**.
+- **Celular / tela estreita** (tema escuro, no estilo do app SimuRelay): barra superior com **MENU · PEÇAS · SIMULAR · FIO · MAIS · DESFAZER · REFAZER**; a biblioteca **PEÇAS** abre por cima da folha com um seletor de **categorias coloridas** e uma grade de símbolos. Com uma peça selecionada, a barra muda para **VALORES · GIRAR · COPIAR · EXCLUIR**. Há botões de zoom **− / +** e **⊡ (ajustar aos componentes)** no canto, e a moldura da página aparece também no celular. O navegador em **retrato** usa este mesmo layout; arraste com um dedo para mover a folha, use a pinça para o zoom e **arraste de um borne a outro para ligar um fio**.
 - **Modo claro e modo escuro** (Ver → Tema, ou MAIS no celular). No modo Automático, o celular segue o padrão do aparelho e o computador fica claro.
 - Português e inglês (menu Ver → Idioma).
 
@@ -107,6 +111,10 @@ No menu **Arquivo → Exemplos** (ou ☰ no celular):
 3. **Lâmpada temporizada:** temporizador ao trabalho que acende uma lâmpada alguns segundos depois da partida.
 4. **Tensões:** motor Y/Δ e lâmpadas com tensões nominais diferentes.
 5. **Partida estrela-triângulo temporizada:** contatores KM1 (linha), KM2 (estrela) e KM3 (triângulo), temporizador KT1 e intertravamentos. O motor (Δ380/Y660 V) parte em estrela com tensão reduzida e, após 5 s, passa para triângulo.
+
+## Correções (encontre o erro)
+
+Em **Arquivo → Correções** (ou ☰ MENU no celular) há 5 circuitos baseados nos exemplos, cada um com um erro sutil que impede o funcionamento. Ao abrir, a barra de status diz o que o circuito deveria fazer.
 
 ## Como usar
 
