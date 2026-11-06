@@ -35,6 +35,7 @@ O SimuEletro é uma releitura moderna dos simuladores clássicos de comandos el�
 - Identificação automática (KM1, S1, H1, Q1…) e numeração dos bornes (13-14, 21-22, A1-A2, 1-2…).
 - Contatos **seguem** a bobina, o temporizador ou o disjuntor com a mesma identificação.
 - Selecionar, mover (os fios acompanham), girar, excluir, desfazer e refazer.
+- **Copiar, recortar e colar** (Ctrl+C, Ctrl+X, Ctrl+V) e duplicar (Ctrl+D): o trecho colado vai para onde está o mouse; bobinas e botões colados ganham nova identificação (KM1 → KM2) e os contatos colados junto passam a seguir a nova bobina. Também funciona entre duas janelas/abas do SimuEletro.
 
 ### Simulação
 - Fios com tensão coloridos: **vermelho** = fase / +24 V, **azul** = neutro / 0 V, **verde tracejado** = terra.
@@ -64,9 +65,10 @@ As tensões são escolhidas numa **lista suspensa** nas propriedades: só existe
 
 Na simulação, a tensão aplicada é comparada com a nominal (tolerância de ±10%):
 
-- **Sinaleiras/LEDs:** acima da nominal **queimam** (ficam queimadas até parar a simulação); abaixo **brilham mais fraco** e mostram **subtensão**; CA no lugar de CC (ou o contrário) não acendem.
-- **Bobinas:** em subtensão **não atracam**; em sobretensão atracam, mas mostram o aviso.
-- **Motores:** o de 6 terminais detecta se foi fechado em **estrela** (U2-V2-W2 juntos) ou **triângulo** (U1-W2, V1-U2, W1-V2) e avisa subtensão (gira mais devagar) ou sobretensão.
+- **Em sobretensão nada funciona:** sinaleiras/LEDs **queimam** (ficam queimadas até parar a simulação), bobinas **não ligam** e motores **não giram**.
+- **Em subtensão:** sinaleiras/LEDs acendem **mais claras (fracas)**, motores **giram mais devagar** e bobinas de contator **não ligam**.
+- CA no lugar de CC (ou o contrário): a peça não funciona.
+- **Motor de 6 terminais:** detecta se foi fechado em **estrela** (U2-V2-W2 juntos) ou **triângulo** (U1-W2, V1-U2, W1-V2).
 - Os avisos aparecem **ao lado da peça** na folha e no painel de estado.
 
 O exemplo **Arquivo → Exemplos → Tensões: motor Y/Δ e lâmpadas** mostra tudo isso.
@@ -104,7 +106,7 @@ No menu **Arquivo → Exemplos** (ou ☰ no celular):
 3. Dê aos contatos a mesma identificação da bobina que os aciona (ex.: KM1).
 4. Pressione **▶ Simular** (F5) e opere os botões e chaves.
 
-Atalhos no computador: `Ctrl+Z` desfazer · `Ctrl+Y` refazer · `Del` excluir · `R` girar · `W` fio · `V` selecionar · `F5` simular · `Esc` cancelar · roda do mouse = zoom · botão do meio/direito = mover a folha.
+Atalhos no computador: `Ctrl+C` copiar · `Ctrl+X` recortar · `Ctrl+V` colar · `Ctrl+D` duplicar · `Ctrl+Z` desfazer · `Ctrl+Y` refazer · `Del` excluir · `R` girar · `W` fio · `V` selecionar · `F5` simular · `Esc` cancelar · roda do mouse = zoom · botão do meio/direito = mover a folha.
 
 ## Como executar localmente
 

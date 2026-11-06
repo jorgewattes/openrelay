@@ -309,12 +309,12 @@ impl Sim {
             let mut changed = false;
             for c in circ.comps.iter_mut() {
                 if matches!(c.kind, Kind::Coil | Kind::TimerOn | Kind::TimerOff) {
-                    // A coil pulls in at its rated voltage (or above, flagged);
-                    // under-voltage or the wrong kind of current leaves it open.
+                    // A coil pulls in only at its rated voltage: under-voltage,
+                    // over-voltage or the wrong kind of current leave it open.
                     let (e, volt, vstat) = match (volts(&nets, c.pin(0), c.pin(1)), nominal(c)) {
                         (Some((k, v, _)), Some(n)) => {
                             let s = check(n, (k, v));
-                            (s == 0 || s == 1, v, s)
+                            (s == 0, v, s)
                         }
                         _ => (false, 0.0, 0),
                     };
@@ -394,8 +394,9 @@ impl Sim {
                                     c.st.bright = 0.0;
                                 }
                                 -1 => {
+                                    // Under-voltage: lit, but clearly paler.
                                     c.st.energized = true;
-                                    c.st.bright = (v / n.1).clamp(0.12, 0.85);
+                                    c.st.bright = ((v / n.1) * 0.6).clamp(0.12, 0.5);
                                 }
                                 _ => {
                                     c.st.energized = true;
@@ -416,8 +417,10 @@ impl Sim {
                         let s = check(n, (k, v));
                         c.st.volt = v;
                         c.st.vstat = s;
-                        c.st.energized = s != 2;
-                        c.st.motor = if s != 2 { d } else { 0 };
+                        // Over-voltage or wrong AC/DC: the motor doesn't run.
+                        let runs = s == 0 || s == -1;
+                        c.st.energized = runs;
+                        c.st.motor = if runs { d } else { 0 };
                     }
                     _ => {
                         c.st.energized = false;
@@ -431,11 +434,13 @@ impl Sim {
                     match rotation(nets, pts) {
                         Some((dir, lvl)) => {
                             let vl = ac_system(lvl).1;
-                            c.st.motor = dir;
-                            c.st.energized = true;
+                            let s = nominal(c).map(|n| check(n, (Cur::Ac, vl))).unwrap_or(0);
+                            let runs = s != 1;
+                            c.st.motor = if runs { dir } else { 0 };
+                            c.st.energized = runs;
                             c.st.hum = false;
                             c.st.volt = vl;
-                            c.st.vstat = nominal(c).map(|n| check(n, (Cur::Ac, vl))).unwrap_or(0);
+                            c.st.vstat = s;
                         }
                         None => {
                             c.st.motor = 0;
@@ -468,11 +473,13 @@ impl Sim {
                         Some((dir, lvl)) if w.iter().all(|v| *v > 0.0) => {
                             let winding = w.iter().cloned().fold(0.0f32, f32::max);
                             let rated = MOTOR6_NOMINALS.get(c.volt as usize).unwrap_or(&MOTOR6_NOMINALS[0]).0;
-                            c.st.motor = dir;
-                            c.st.energized = true;
+                            let s = check((Cur::Ac, rated), (Cur::Ac, winding));
+                            let runs = s != 1;
+                            c.st.motor = if runs { dir } else { 0 };
+                            c.st.energized = runs;
                             c.st.hum = false;
                             c.st.volt = ac_system(lvl).1;
-                            c.st.vstat = check((Cur::Ac, rated), (Cur::Ac, winding));
+                            c.st.vstat = s;
                         }
                         _ => {
                             c.st.motor = 0;
@@ -487,7 +494,7 @@ impl Sim {
             }
             if c.st.motor != 0 {
                 // Under-voltage turns slower.
-                let speed = if c.st.vstat == -1 { 2.5 } else { 6.0 };
+                let speed = if c.st.vstat == -1 { 1.8 } else { 6.0 };
                 c.st.angle += dt * speed * c.st.motor as f32;
             }
         }
@@ -662,6 +669,12 @@ mod tests {
         c.comps.iter_mut().find(|x| x.kind == Kind::Coil).unwrap().volt = 1;
         s.start(&mut c);
         assert!(get(&c, Kind::Coil, "KM1").st.energized);
+        // 127 V coil on a 220/380 system (220 V): over-voltage, does not pull in.
+        c.comps.iter_mut().find(|x| x.kind == Kind::TermL1).unwrap().volt = 0;
+        s.start(&mut c);
+        let k = get(&c, Kind::Coil, "KM1");
+        assert!(!k.st.energized, "over-voltage coil must not pull in");
+        assert_eq!(k.st.vstat, 1);
     }
 
     fn motor6(delta: bool, rating: u8) -> Circuit {
@@ -696,7 +709,8 @@ mod tests {
         let mut c = motor6(true, 0);
         s.start(&mut c);
         let m = get(&c, Kind::Motor6, "M1");
-        assert_eq!((m.st.motor != 0, m.st.conn, m.st.vstat), (true, 2, 1));
+        // Over-voltage: the motor does not run.
+        assert_eq!((m.st.motor != 0, m.st.conn, m.st.vstat), (false, 2, 1));
         // Δ380/Y660 motor in delta on 380 V: right.
         let mut c = motor6(true, 1);
         s.start(&mut c);

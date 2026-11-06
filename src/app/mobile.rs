@@ -72,6 +72,7 @@ impl App {
             items.push(Some(("🔧", t("VALORES", "VALUES"), self.sheet_state(Sheet::Props), 5)));
             items.push(Some(("↻", t("GIRAR", "ROTATE"), BtnState::Normal, 10)));
             items.push(Some(("📋", t("COPIAR", "COPY"), BtnState::Normal, 11)));
+            items.push(Some(("✂", t("RECORTAR", "CUT"), BtnState::Normal, 13)));
             items.push(Some(("🗑", t("EXCLUIR", "DELETE"), BtnState::Danger, 12)));
             items.push(None);
             items.push(Some(("⟲", t("DESFAZER", "UNDO"), undo, 7)));
@@ -83,6 +84,9 @@ impl App {
             items.push(Some(("▶", t("SIMULAR", "PLAY"), BtnState::Go, 3)));
             let wire = if self.tool == Tool::Wire { BtnState::Active } else { BtnState::Normal };
             items.push(Some(("✏", t("FIO", "WIRE"), wire, 2)));
+            if self.clip.is_some() {
+                items.push(Some(("📥", t("COLAR", "PASTE"), BtnState::Normal, 14)));
+            }
             items.push(None);
             items.push(Some(("•••", t("MAIS", "MORE"), self.sheet_state(Sheet::More), 6)));
             items.push(Some(("⟲", t("DESFAZER", "UNDO"), undo, 7)));
@@ -106,7 +110,8 @@ impl App {
                     }
                     Some((icon, label, st, id)) => {
                         if bar_btn(ui, w, icon, label, st) {
-                            self.bar_action(id);
+                            let ctx = ui.ctx().clone();
+                            self.bar_action(id, &ctx);
                         }
                     }
                 }
@@ -122,7 +127,7 @@ impl App {
         }
     }
 
-    fn bar_action(&mut self, id: u8) {
+    fn bar_action(&mut self, id: u8, ctx: &egui::Context) {
         match id {
             0 => {
                 self.lib_open = false;
@@ -158,7 +163,17 @@ impl App {
             7 => self.do_undo(),
             8 => self.do_redo(),
             10 => self.rotate_selected(),
-            11 => self.duplicate_selected(),
+            11 => {
+                self.copy_selected(ctx);
+            }
+            13 => {
+                self.cut_selected(ctx);
+                self.sheet = Sheet::None;
+            }
+            14 => {
+                self.lib_open = false;
+                self.paste(None);
+            }
             _ => {
                 self.delete_selected();
                 self.sheet = Sheet::None;

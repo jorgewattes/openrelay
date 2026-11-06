@@ -12,6 +12,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
+/// Marks SimuEletro pieces in the system clipboard.
+const CLIP_PREFIX: &str = "SIMUELETRO-CLIP:";
+
 const SHEET_W: f32 = 100.0;
 const SHEET_H: f32 = 70.0;
 
@@ -95,6 +98,10 @@ pub struct App {
     link_msg: String,
     /// Visual theme currently applied to the widgets (dark = phone).
     dark_applied: Option<bool>,
+    /// Copied / cut piece of circuit (also put in the system clipboard as text).
+    clip: Option<Circuit>,
+    /// Pastes since the last copy (shifts each paste a little further).
+    paste_n: i32,
 }
 
 impl App {
@@ -135,12 +142,28 @@ impl App {
             link_input: None,
             link_msg: String::new(),
             dark_applied: None,
+            clip: None,
+            paste_n: 0,
         };
         // Preview helper for pictures: SIMU_SHEET=library|categories|selected.
         let preview = std::env::var("SIMU_SHEET").unwrap_or_default();
         match preview.as_str() {
             "library" => app.lib_open = true,
             "share" => app.open_share(),
+            "paste" => {
+                // Copy the coil, its holding contact and the start button, then paste:
+                // the pasted coil becomes KM2 and its contact follows KM2.
+                let ids: Vec<u32> = app
+                    .circ
+                    .comps
+                    .iter()
+                    .filter(|c| (c.tag == "KM1" && matches!(c.kind, Kind::Coil | Kind::ContactNo)) || c.tag == "S2")
+                    .map(|c| c.id)
+                    .collect();
+                app.sel = ids.into_iter().collect();
+                app.clip = app.selection_fragment();
+                app.paste(None);
+            }
             "volts" => {
                 app.circ = examples::voltages();
                 app.sim.start(&mut app.circ);
@@ -537,6 +560,25 @@ impl App {
                             self.do_redo();
                         }
                         ui.separator();
+                        let edit = !self.sim.running;
+                        let has_sel = !self.sel.is_empty() || !self.sel_w.is_empty();
+                        if ui.add_enabled(edit && has_sel, egui::Button::new(t("Recortar   Ctrl+X", "Cut      Ctrl+X"))).clicked() {
+                            self.cut_selected(ui.ctx());
+                            ui.close();
+                        }
+                        if ui.add_enabled(edit && has_sel, egui::Button::new(t("Copiar     Ctrl+C", "Copy     Ctrl+C"))).clicked() {
+                            self.copy_selected(ui.ctx());
+                            ui.close();
+                        }
+                        if ui.add_enabled(edit && self.clip.is_some(), egui::Button::new(t("Colar      Ctrl+V", "Paste    Ctrl+V"))).clicked() {
+                            self.paste(None);
+                            ui.close();
+                        }
+                        if ui.add_enabled(edit && has_sel, egui::Button::new(t("Duplicar   Ctrl+D", "Duplicate Ctrl+D"))).clicked() {
+                            self.duplicate_selected();
+                            ui.close();
+                        }
+                        ui.separator();
                         if ui.button(t("Girar      R", "Rotate   R")).clicked() {
                             self.rotate_selected();
                         }
@@ -606,34 +648,147 @@ impl App {
         best.map(|(_, p)| p)
     }
 
-    /// Copy the selected parts (and wires) a little down-right.
-    fn duplicate_selected(&mut self) {
+    // ---------- copy / cut / paste ----------
+
+    /// The selected parts and wires as a stand-alone piece of circuit. Wires
+    /// running between two selected parts come along even if not selected.
+    fn selection_fragment(&self) -> Option<Circuit> {
         if self.sel.is_empty() && self.sel_w.is_empty() {
+            return None;
+        }
+        let comps: Vec<Comp> = self
+            .circ
+            .comps
+            .iter()
+            .filter(|c| self.sel.contains(&c.id))
+            .cloned()
+            .map(|mut c| {
+                c.st = Default::default();
+                c
+            })
+            .collect();
+        let pins: HashSet<P> = comps.iter().flat_map(|c| c.pins()).collect();
+        let wires: Vec<Wire> = self
+            .circ
+            .wires
+            .iter()
+            .enumerate()
+            .filter(|(i, w)| self.sel_w.contains(i) || (pins.contains(&w.a) && pins.contains(&w.b)))
+            .map(|(_, w)| w.clone())
+            .collect();
+        Some(Circuit { comps, wires, next_id: 0 })
+    }
+
+    /// Ctrl+C: keep the selection in the app's clipboard and in the system one
+    /// (as text), so it can be pasted here or in another SimuEletro window.
+    fn copy_selected(&mut self, ctx: &egui::Context) -> bool {
+        let Some(frag) = self.selection_fragment() else {
+            self.status = t("Nada selecionado para copiar.", "Nothing selected to copy.").into();
+            return false;
+        };
+        if let Ok(json) = serde_json::to_string(&frag) {
+            ctx.copy_text(format!("{CLIP_PREFIX}{json}"));
+        }
+        self.status = format!(
+            "{} {} {}, {} {}.",
+            t("Copiado:", "Copied:"),
+            frag.comps.len(),
+            t("componentes", "parts"),
+            frag.wires.len(),
+            t("fios", "wires")
+        );
+        self.clip = Some(frag);
+        self.paste_n = 0;
+        true
+    }
+
+    /// Ctrl+X: copy, then remove the selection.
+    fn cut_selected(&mut self, ctx: &egui::Context) {
+        if self.copy_selected(ctx) {
+            self.delete_selected();
+            self.status = t("Recortado. Use Colar (Ctrl+V) para inserir.", "Cut. Use Paste (Ctrl+V) to insert it.").into();
+        }
+    }
+
+    /// Ctrl+V: insert a copy of the clipboard. Lands under the mouse when it is on
+    /// the sheet, otherwise a little down-right of the original (moving further each time).
+    fn paste(&mut self, from_text: Option<&str>) {
+        let frag = from_text
+            .and_then(|s| s.trim().strip_prefix(CLIP_PREFIX))
+            .and_then(|j| serde_json::from_str::<Circuit>(j).ok())
+            .or_else(|| self.clip.clone());
+        let Some(frag) = frag else {
+            self.status = t("Nada para colar: copie algo antes (Ctrl+C).", "Nothing to paste: copy something first (Ctrl+C).").into();
+            return;
+        };
+        if frag.comps.is_empty() && frag.wires.is_empty() {
             return;
         }
+        // Where it goes.
+        let mut min = P::new(i32::MAX, i32::MAX);
+        for p in frag.comps.iter().flat_map(|c| c.pins()).chain(frag.wires.iter().flat_map(|w| [w.a, w.b])) {
+            min.x = min.x.min(p.x);
+            min.y = min.y.min(p.y);
+        }
+        let d = match self.mouse_world {
+            Some((x, y)) => P::new(x.round() as i32, y.round() as i32) - min,
+            None => {
+                self.paste_n += 1;
+                P::new(4 * self.paste_n, 4 * self.paste_n)
+            }
+        };
         self.push_undo();
-        let d = P::new(4, 4);
-        let picked: Vec<Comp> = self.circ.comps.iter().filter(|c| self.sel.contains(&c.id)).cloned().collect();
-        let wires: Vec<Wire> = self
-            .sel_w
-            .iter()
-            .filter_map(|&i| self.circ.wires.get(i).cloned())
-            .collect();
         self.clear_sel();
-        for c in picked {
-            // Devices get a fresh tag; contacts keep following the same device.
-            let tag = if c.kind.is_linked() || c.kind.is_terminal() { c.tag.clone() } else { self.circ.next_tag(c.kind) };
+        // Devices whose tag is already used get a new one; contacts in the pasted
+        // piece follow their device's new tag, other contacts keep theirs.
+        let mut renamed: HashMap<String, String> = HashMap::new();
+        let mut order: Vec<&Comp> = frag.comps.iter().collect();
+        order.sort_by_key(|c| c.kind.is_linked());
+        for c in order {
+            let tag = if c.kind.is_terminal() {
+                c.tag.clone()
+            } else if c.kind.is_linked() {
+                renamed.get(&c.tag).cloned().unwrap_or_else(|| c.tag.clone())
+            } else if !c.tag.is_empty() && self.circ.comps.iter().any(|o| !o.kind.is_linked() && o.tag == c.tag) {
+                let new = self.circ.next_tag(c.kind);
+                if c.kind.is_device() {
+                    renamed.insert(c.tag.clone(), new.clone());
+                }
+                new
+            } else {
+                c.tag.clone()
+            };
             let id = self.circ.add(c.kind, c.pos + d, c.rot, &tag);
             if let Some(n) = self.circ.comp_mut(id) {
                 n.preset = c.preset;
                 n.color = c.color;
+                n.volt = c.volt;
             }
             self.sel.insert(id);
         }
-        for w in wires {
+        for w in &frag.wires {
             self.circ.wires.push(Wire { a: w.a + d, b: w.b + d });
             self.sel_w.insert(self.circ.wires.len() - 1);
         }
+        self.set_tool(Tool::Select);
+        self.status = t(
+            "Colado. Arraste para posicionar; Ctrl+Z desfaz.",
+            "Pasted. Drag it into place; Ctrl+Z undoes.",
+        )
+        .into();
+    }
+
+    /// Copy the selection and paste it right away, a little down-right.
+    fn duplicate_selected(&mut self) {
+        let Some(frag) = self.selection_fragment() else { return };
+        let keep = self.clip.replace(frag);
+        let mouse = self.mouse_world.take();
+        let n = self.paste_n;
+        self.paste_n = 0;
+        self.paste(None);
+        self.paste_n = n;
+        self.mouse_world = mouse;
+        self.clip = keep;
     }
 
     /// Address used for share links: the page itself on the web, the public site elsewhere.
@@ -804,6 +959,18 @@ impl App {
                     }
                     if tb(ui, "🗑", t("Excluir", "Delete"), edit) {
                         self.delete_selected();
+                    }
+                    let has_sel = !self.sel.is_empty() || !self.sel_w.is_empty();
+                    if tb(ui, "✂", t("Recortar (Ctrl+X)", "Cut (Ctrl+X)"), edit && has_sel) {
+                        let c = ui.ctx().clone();
+                        self.cut_selected(&c);
+                    }
+                    if tb(ui, "📋", t("Copiar (Ctrl+C)", "Copy (Ctrl+C)"), edit && has_sel) {
+                        let c = ui.ctx().clone();
+                        self.copy_selected(&c);
+                    }
+                    if tb(ui, "📥", t("Colar (Ctrl+V)", "Paste (Ctrl+V)"), edit && self.clip.is_some()) {
+                        self.paste(None);
                     }
                     ui.separator();
                     let (txt, fill) = if self.sim.running {
@@ -1160,7 +1327,10 @@ impl App {
                             format!("{} {:.0} V", t("subtensão – não atraca", "under-voltage – no pull-in"), c.st.volt),
                             Color32::from_rgb(214, 130, 0),
                         ),
-                        1 => (format!("{} {:.0} V", t("ligado, sobretensão", "on, over-voltage"), c.st.volt), Color32::from_rgb(220, 53, 69)),
+                        1 => (
+                            format!("{} {:.0} V", t("sobretensão – não liga", "over-voltage – no pull-in"), c.st.volt),
+                            Color32::from_rgb(220, 53, 69),
+                        ),
                         2 => (t("CA/CC errado", "wrong AC/DC").to_string(), Color32::from_rgb(130, 60, 190)),
                         _ if on => (format!("{} {:.0} V", t("ligado", "on"), c.st.volt), Color32::from_rgb(25, 160, 85)),
                         _ => (t("desligado", "off").to_string(), Color32::GRAY),
@@ -1209,6 +1379,10 @@ impl App {
                         _ => (t("parado", "stopped"), Color32::GRAY),
                     };
                     let mut s = s.to_string();
+                    if c.st.motor == 0 && c.st.vstat == 1 {
+                        s = format!("{} {:.0} V", t("parado – sobretensão", "stopped – over-voltage"), c.st.volt);
+                        col = Color32::from_rgb(220, 53, 69);
+                    }
                     if c.st.motor != 0 {
                         if c.kind == Kind::Motor6 {
                             s.push_str(match c.st.conn {
@@ -1260,17 +1434,24 @@ impl App {
             if rows.is_empty() {
                 ui.label(t("Sem dispositivos.", "No devices."));
             }
-            for (name, state, col, frac) in rows {
+            // Two lines per device: name on top, state underneath (wraps, never overlaps).
+            let n = rows.len();
+            for (i, (name, state, col, frac)) in rows.into_iter().enumerate() {
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(Vec2::splat(12.0), Sense::hover());
                     ui.painter().circle_filled(r.center(), 5.0, col);
                     ui.label(RichText::new(name).strong());
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(RichText::new(state).color(col));
-                    });
+                });
+                ui.horizontal(|ui| {
+                    ui.add_space(20.0);
+                    ui.add(egui::Label::new(RichText::new(state).color(col)).wrap());
                 });
                 if let Some(f) = frac {
                     ui.add(egui::ProgressBar::new(f.clamp(0.0, 1.0)).desired_height(6.0));
+                }
+                if i + 1 < n {
+                    ui.add_space(2.0);
+                    ui.separator();
                 }
             }
         });
@@ -1929,6 +2110,40 @@ impl App {
     fn keyboard(&mut self, ctx: &egui::Context) {
         if ctx.wants_keyboard_input() {
             return;
+        }
+        // Clipboard: the window turns Ctrl+C / Ctrl+X / Ctrl+V into these events
+        // (on the web too). Ctrl+D duplicates.
+        let (copy, cut, paste, paste_key, dup) = ctx.input(|i| {
+            let mut copy = false;
+            let mut cut = false;
+            let mut paste: Option<String> = None;
+            for e in &i.events {
+                match e {
+                    egui::Event::Copy => copy = true,
+                    egui::Event::Cut => cut = true,
+                    egui::Event::Paste(s) => paste = Some(s.clone()),
+                    _ => {}
+                }
+            }
+            let cmd = i.modifiers.command;
+            (copy, cut, paste, i.key_pressed(Key::V) && cmd, i.key_pressed(Key::D) && cmd)
+        });
+        if !self.sim.running {
+            if copy {
+                self.copy_selected(ctx);
+            }
+            if cut {
+                self.cut_selected(ctx);
+            }
+            if let Some(text) = &paste {
+                self.paste(Some(text));
+            } else if paste_key {
+                // Empty system clipboard: no paste event, use the app's own.
+                self.paste(None);
+            }
+            if dup {
+                self.duplicate_selected();
+            }
         }
         let (del, r, esc, z, y, s, o, n, a, f5, w, v) = ctx.input(|i| {
             let cmd = i.modifiers.command;
