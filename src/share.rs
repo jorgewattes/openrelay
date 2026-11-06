@@ -201,6 +201,13 @@ mod tests {
         }
     }
 
+    /// `cargo test print_example_link -- --ignored --nocapture` prints a sample link.
+    #[test]
+    #[ignore]
+    fn print_example_link() {
+        println!("LINK {}", link(&examples::reversing(), PUBLIC_URL));
+    }
+
     #[test]
     fn damaged_link_is_rejected() {
         assert!(decode_from_url("https://x/?c=@@@").is_none());
