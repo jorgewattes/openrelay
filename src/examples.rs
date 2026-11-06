@@ -7,6 +7,7 @@ pub fn list() -> Vec<(&'static str, fn() -> Circuit)> {
         (t("Partida direta com selo", "Direct-on-line start/stop"), direct_start as fn() -> Circuit),
         (t("Reversão de motor", "Forward / reverse motor"), reversing as fn() -> Circuit),
         (t("Lâmpada temporizada", "Timed lamp"), timed_lamp as fn() -> Circuit),
+        (t("Tensões: motor Y/Δ e lâmpadas", "Voltages: Y/Δ motor and lamps"), voltages as fn() -> Circuit),
     ]
 }
 
@@ -181,4 +182,64 @@ pub fn timed_lamp() -> Circuit {
     c.comp_mut(h).unwrap().color = 2;
     c.wire((50, 40), (50, 44));
     c
+}
+
+/// Voltage demo: a 6-terminal motor closed in star on 220/380 V, and three
+/// lamps of different ratings on a 127/220 V system (normal, dim, burnt).
+pub fn voltages() -> Circuit {
+    let mut c = Circuit::default();
+    // Power: 220/380 V, motor Δ220/Y380 V closed in star (right for 380 V).
+    c.add(TermL1, (10, 6).into(), 0, "");
+    c.add(TermL2, (13, 6).into(), 0, "");
+    c.add(TermL3, (16, 6).into(), 0, "");
+    c.add(TermPE, (19, 6).into(), 0, "");
+    c.add(Breaker3, (10, 10).into(), 0, "Q1");
+    c.add(Main3, (10, 20).into(), 0, "KM1");
+    c.add(Motor6, (10, 32).into(), 0, "M1");
+    for x in [10, 13, 16] {
+        c.wire((x, 6), (x, 10));
+        c.wire((x, 16), (x, 20));
+        c.wire((x, 26), (x, 32));
+    }
+    c.wire((19, 6), (19, 32));
+    c.wire((10, 43), (13, 43));
+    c.wire((13, 43), (16, 43));
+
+    // Control: switch S1 turns KM1 on (220 V coil between L1 and N).
+    c.add(TermL1, (40, 6).into(), 0, "");
+    c.add(Switch, (40, 9).into(), 0, "S1");
+    c.wire((40, 6), (40, 9));
+    c.wire((40, 15), (40, 18));
+    c.add(Coil, (40, 18).into(), 0, "KM1");
+    c.wire((40, 24), (40, 28));
+    c.add(TermN, (40, 28).into(), 2, "");
+
+    // Lamps on a 127/220 V system: 127 V (normal), 220 V (dim), 24 V (burns).
+    let l = c.add(TermL1, (52, 6).into(), 0, "");
+    c.comp_mut(l).unwrap().volt = 1;
+    c.wire((52, 6), (52, 10));
+    c.wire((52, 10), (80, 10));
+    for (x, tag, rating, color) in [(52, "H1", 1u8, 0u8), (66, "H2", 0, 2), (80, "H3", 3, 1)] {
+        c.wire((x, 10), (x, 14));
+        let h = c.add(Lamp, (x, 14).into(), 0, tag);
+        let hc = c.comp_mut(h).unwrap();
+        hc.volt = rating;
+        hc.color = color;
+        c.wire((x, 20), (x, 24));
+    }
+    c.wire((52, 24), (80, 24));
+    c.wire((52, 24), (52, 28));
+    c.add(TermN, (52, 28).into(), 2, "");
+    shift_down(&mut c, 5);
+    c
+}
+/// Move the whole drawing down (keeps it clear of the sheet header).
+fn shift_down(c: &mut Circuit, dy: i32) {
+    for comp in c.comps.iter_mut() {
+        comp.pos.y += dy;
+    }
+    for w in c.wires.iter_mut() {
+        w.a.y += dy;
+        w.b.y += dy;
+    }
 }

@@ -127,6 +127,8 @@ pub enum Kind {
     Buzzer,
     Motor1,
     Motor3,
+    /// Three-phase motor with six terminals (star or delta closed outside).
+    Motor6,
 }
 
 /// Palette categories, in library order, each with its marker colour
@@ -150,7 +152,7 @@ pub const CATEGORY_DEFS: [CategoryDef; 8] = {
         ("Cargas", "Loads", [141, 122, 110], &[Lamp, Buzzer]),
         ("Contatores", "Contactors", [47, 198, 214], &[Main3]),
         ("Proteções", "Protections", [214, 69, 58], &[Fuse, Breaker1, Breaker3, Thermal3]),
-        ("Motores", "Motors", [31, 150, 130], &[Motor1, Motor3]),
+        ("Motores", "Motors", [31, 150, 130], &[Motor1, Motor3, Motor6]),
     ]
 };
 
@@ -167,6 +169,8 @@ const PINS_1: &[(i32, i32)] = &[(0, 0)];
 const PINS_2: &[(i32, i32)] = &[(0, 0), (0, 6)];
 const PINS_3P: &[(i32, i32)] = &[(0, 0), (3, 0), (6, 0), (0, 6), (3, 6), (6, 6)];
 const PINS_M3: &[(i32, i32)] = &[(0, 0), (3, 0), (6, 0), (9, 0)];
+/// U1 V1 W1 (top), U2 V2 W2 (bottom), PE.
+const PINS_M6: &[(i32, i32)] = &[(0, 0), (3, 0), (6, 0), (0, 11), (3, 11), (6, 11), (9, 0)];
 
 impl Kind {
     pub fn pins(self) -> &'static [(i32, i32)] {
@@ -175,6 +179,7 @@ impl Kind {
             TermL1 | TermL2 | TermL3 | TermN | TermPE | TermP24 | Term0V => PINS_1,
             Breaker3 | Thermal3 | Main3 => PINS_3P,
             Motor3 => PINS_M3,
+            Motor6 => PINS_M6,
             _ => PINS_2,
         }
     }
@@ -187,6 +192,7 @@ impl Kind {
             Breaker3 => (-5.0, 0.0, 7.0, 6.0),
             Thermal3 | Main3 => (-1.5, 0.0, 7.5, 6.0),
             Motor3 => (-0.5, 0.0, 9.5, 9.0),
+            Motor6 => (-0.5, 0.0, 9.5, 11.0),
             Breaker1 => (-5.0, 0.0, 1.5, 6.0),
             PushNo | PushNc | Switch | EStop | LimitNo | LimitNc => (-4.2, 0.0, 1.5, 6.0),
             Coil | TimerOn | TimerOff => (-3.2, 0.0, 1.8, 6.0),
@@ -237,7 +243,7 @@ impl Kind {
             TimerOn | TimerOff => "KT",
             Lamp => "H",
             Buzzer => "HA",
-            Motor1 | Motor3 => "M",
+            Motor1 | Motor3 | Motor6 => "M",
             _ => "",
         }
     }
@@ -250,7 +256,7 @@ impl Kind {
             TermL3 => t("Fase L3", "Phase L3"),
             TermN => t("Neutro N", "Neutral N"),
             TermPE => t("Terra PE", "Earth PE"),
-            TermP24 => t("+24 V CC", "+24 V DC"),
+            TermP24 => t("+V CC (12/24 V)", "+V DC (12/24 V)"),
             Term0V => t("0 V CC", "0 V DC"),
             Fuse => t("Fusível", "Fuse"),
             Breaker1 => t("Disjuntor 1 polo", "Breaker 1-pole"),
@@ -271,7 +277,8 @@ impl Kind {
             Lamp => t("Lâmpada sinalizadora", "Pilot lamp"),
             Buzzer => t("Sirene", "Buzzer"),
             Motor1 => t("Motor monofásico / CC", "Motor 1~ / DC"),
-            Motor3 => t("Motor trifásico", "Motor 3~"),
+            Motor3 => t("Motor trifásico (fechamento interno)", "Motor 3~ (internal connection)"),
+            Motor6 => t("Motor trifásico 6 terminais (Y/Δ)", "Motor 3~ 6 terminals (Y/Δ)"),
         }
     }
 }
@@ -294,6 +301,16 @@ pub struct St {
     pub angle: f32,
     /// 3-phase motor missing a phase.
     pub hum: bool,
+    /// Voltage applied to the load (V, magnitude).
+    pub volt: f32,
+    /// Voltage check: 0 ok, -1 under, 1 over, 2 wrong kind (AC/DC).
+    pub vstat: i8,
+    /// Lamp burnt by overvoltage (stays burnt until the simulation stops).
+    pub burnt: bool,
+    /// Lamp brightness 0..1 (dim on undervoltage).
+    pub bright: f32,
+    /// 6-terminal motor connection: 1 star, 2 delta, 0 unknown.
+    pub conn: u8,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -313,8 +330,114 @@ pub struct Comp {
     pub color: u8,
     #[serde(default)]
     pub num: u8,
+    /// Chosen voltage, as an index into the part's table (see `volt_choices`):
+    /// supply system for phases, +12/+24 V for DC, nominal voltage for loads.
+    #[serde(default)]
+    pub volt: u8,
     #[serde(skip)]
     pub st: St,
+}
+
+/// Alternating or direct current.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Cur {
+    Ac,
+    Dc,
+}
+
+/// AC supply systems: (phase-neutral, line-line) volts.
+pub const AC_SYSTEMS: [(f32, f32); 2] = [(220.0, 380.0), (127.0, 220.0)];
+/// DC positive terminal options.
+pub const DC_LEVELS: [f32; 2] = [24.0, 12.0];
+/// Nominal voltages of lamps, buzzers and coils (first is the default).
+pub const LOAD_NOMINALS: [(Cur, f32); 6] = [
+    (Cur::Ac, 220.0),
+    (Cur::Ac, 127.0),
+    (Cur::Ac, 380.0),
+    (Cur::Ac, 24.0),
+    (Cur::Dc, 24.0),
+    (Cur::Dc, 12.0),
+];
+/// Single-phase / DC motor nominal voltages.
+pub const MOTOR1_NOMINALS: [(Cur, f32); 4] = [(Cur::Ac, 220.0), (Cur::Ac, 127.0), (Cur::Dc, 24.0), (Cur::Dc, 12.0)];
+/// Three-phase motor with internal connection: line voltage.
+pub const MOTOR3_NOMINALS: [f32; 3] = [380.0, 220.0, 440.0];
+/// Six-terminal motor: (delta, star) line voltages. Each winding is rated for the delta value.
+pub const MOTOR6_NOMINALS: [(f32, f32); 3] = [(220.0, 380.0), (380.0, 660.0), (127.0, 220.0)];
+
+fn vtxt(v: f32) -> String {
+    format!("{v:.0} V")
+}
+
+fn cur_txt(c: Cur) -> &'static str {
+    match c {
+        Cur::Ac => t("CA", "AC"),
+        Cur::Dc => t("CC", "DC"),
+    }
+}
+
+/// The fixed list a student picks from (no free typing), for this kind of part.
+/// Empty when the part has no voltage setting.
+pub fn volt_choices(k: Kind) -> Vec<String> {
+    use Kind::*;
+    match k {
+        TermL1 | TermL2 | TermL3 => AC_SYSTEMS
+            .iter()
+            .map(|(f, l)| format!("{f:.0} V / {l:.0} V CA ({})", t("fase/linha", "phase/line")))
+            .collect(),
+        TermP24 => DC_LEVELS.iter().map(|v| format!("+{v:.0} V CC")).collect(),
+        Lamp | Buzzer | Coil | TimerOn | TimerOff => LOAD_NOMINALS
+            .iter()
+            .map(|(c, v)| format!("{} {}", vtxt(*v), cur_txt(*c)))
+            .collect(),
+        Motor1 => MOTOR1_NOMINALS
+            .iter()
+            .map(|(c, v)| format!("{} {}", vtxt(*v), cur_txt(*c)))
+            .collect(),
+        Motor3 => MOTOR3_NOMINALS.iter().map(|v| format!("{} CA ({})", vtxt(*v), t("entre fases", "line"))).collect(),
+        Motor6 => MOTOR6_NOMINALS
+            .iter()
+            .map(|(d, y)| format!("Δ {d:.0} V / Y {y:.0} V"))
+            .collect(),
+        _ => vec![],
+    }
+}
+
+/// Label of the voltage setting in the properties panel.
+pub fn volt_label(k: Kind) -> &'static str {
+    use Kind::*;
+    match k {
+        TermL1 | TermL2 | TermL3 => t("Sistema", "System"),
+        TermP24 => t("Tensão", "Voltage"),
+        _ => t("Tensão nominal", "Rated voltage"),
+    }
+}
+
+/// Nominal (kind of current, volts) of a load; for 6-terminal motors the delta (winding) value.
+pub fn nominal(c: &Comp) -> Option<(Cur, f32)> {
+    use Kind::*;
+    let i = c.volt as usize;
+    match c.kind {
+        Lamp | Buzzer | Coil | TimerOn | TimerOff => LOAD_NOMINALS.get(i).or(LOAD_NOMINALS.first()).copied(),
+        Motor1 => MOTOR1_NOMINALS.get(i).or(MOTOR1_NOMINALS.first()).copied(),
+        Motor3 => Some((Cur::Ac, *MOTOR3_NOMINALS.get(i).unwrap_or(&MOTOR3_NOMINALS[0]))),
+        Motor6 => Some((Cur::Ac, MOTOR6_NOMINALS.get(i).unwrap_or(&MOTOR6_NOMINALS[0]).0)),
+        _ => None,
+    }
+}
+
+/// Short text of a part's chosen voltage (shown on the sheet), e.g. "220V~", "+12V".
+pub fn volt_badge(c: &Comp) -> Option<String> {
+    use Kind::*;
+    let i = c.volt as usize;
+    match c.kind {
+        TermL1 | TermL2 | TermL3 => AC_SYSTEMS.get(i).map(|(f, l)| format!("{f:.0}/{l:.0}V")),
+        Lamp | Buzzer | Coil | TimerOn | TimerOff | Motor1 | Motor3 => nominal(c).map(|(k, v)| {
+            format!("{v:.0}V{}", if k == Cur::Ac { "~" } else { "=" })
+        }),
+        Motor6 => MOTOR6_NOMINALS.get(i).map(|(d, y)| format!("Δ{d:.0}/Y{y:.0}V")),
+        _ => None,
+    }
 }
 
 fn default_preset() -> f32 {
@@ -394,6 +517,7 @@ impl Circuit {
             preset: 3.0,
             color: 0,
             num,
+            volt: 0,
             st: St::default(),
         });
         id
@@ -499,6 +623,7 @@ pub fn pin_numbers(c: &Comp, linked: Option<Kind>) -> Vec<String> {
         Fuse | Breaker1 => vec!["1".into(), "2".into()],
         Breaker3 | Main3 | Thermal3 => ["1", "3", "5", "2", "4", "6"].iter().map(|s| s.to_string()).collect(),
         Motor3 => ["U1", "V1", "W1", "PE"].iter().map(|s| s.to_string()).collect(),
+        Motor6 => ["U1", "V1", "W1", "U2", "V2", "W2", "PE"].iter().map(|s| s.to_string()).collect(),
         Motor1 => vec!["U1".into(), "U2".into()],
         _ => vec![],
     }

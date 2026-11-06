@@ -141,6 +141,20 @@ impl App {
         match preview.as_str() {
             "library" => app.lib_open = true,
             "share" => app.open_share(),
+            "volts" => {
+                app.circ = examples::voltages();
+                app.sim.start(&mut app.circ);
+                if let Some(s) = app.circ.comps.iter_mut().find(|c| c.kind == Kind::Switch) {
+                    s.st.on = true;
+                }
+            }
+            "props" => {
+                app.circ = examples::voltages();
+                if let Some(c) = app.circ.comps.iter().find(|c| c.kind == Kind::Motor6) {
+                    app.sel.insert(c.id);
+                }
+                app.sheet = Sheet::Props;
+            }
             "categories" => {
                 app.lib_open = true;
                 app.cat_list_open = true;
@@ -950,6 +964,34 @@ impl App {
                                 .changed();
                         });
                     }
+                    // Voltage: only the tabulated values, picked from a list.
+                    let choices = crate::circuit::volt_choices(c.kind);
+                    if !choices.is_empty() {
+                        ui.label(crate::circuit::volt_label(c.kind));
+                        let cur = choices.get(c.volt as usize).cloned().unwrap_or_default();
+                        egui::ComboBox::from_id_salt("volt")
+                            .selected_text(cur)
+                            .width(ui.available_width().min(220.0))
+                            .show_ui(ui, |ui| {
+                                for (i, ch) in choices.iter().enumerate() {
+                                    if ui.selectable_label(c.volt as usize == i, ch).clicked() {
+                                        c.volt = i as u8;
+                                        changed = true;
+                                    }
+                                }
+                            });
+                        if c.kind == Kind::Motor6 {
+                            ui.label(
+                                RichText::new(t(
+                                    "Ligue U2-V2-W2 juntos para estrela (Y) ou U1-W2, V1-U2, W1-V2 para triângulo (Δ).",
+                                    "Tie U2-V2-W2 together for star (Y), or U1-W2, V1-U2, W1-V2 for delta (Δ).",
+                                ))
+                                .small()
+                                .color(subtle(ui)),
+                            );
+                        }
+                        ui.add_space(2.0);
+                    }
                     if c.kind.is_linked() {
                         ui.horizontal(|ui| {
                             ui.label(t("Segue", "Follows"));
@@ -1113,12 +1155,17 @@ impl App {
                         continue;
                     }
                     let on = c.st.energized;
-                    rows.push((
-                        format!("{}  {}", c.tag, t("contator", "contactor")),
-                        if on { t("ligado", "on") } else { t("desligado", "off") }.into(),
-                        if on { Color32::from_rgb(25, 160, 85) } else { Color32::GRAY },
-                        None,
-                    ));
+                    let (state, col) = match c.st.vstat {
+                        -1 if c.st.volt > 0.0 => (
+                            format!("{} {:.0} V", t("subtensão – não atraca", "under-voltage – no pull-in"), c.st.volt),
+                            Color32::from_rgb(214, 130, 0),
+                        ),
+                        1 => (format!("{} {:.0} V", t("ligado, sobretensão", "on, over-voltage"), c.st.volt), Color32::from_rgb(220, 53, 69)),
+                        2 => (t("CA/CC errado", "wrong AC/DC").to_string(), Color32::from_rgb(130, 60, 190)),
+                        _ if on => (format!("{} {:.0} V", t("ligado", "on"), c.st.volt), Color32::from_rgb(25, 160, 85)),
+                        _ => (t("desligado", "off").to_string(), Color32::GRAY),
+                    };
+                    rows.push((format!("{}  {}", c.tag, t("contator", "contactor")), state, col, None));
                 }
                 Kind::TimerOn | Kind::TimerOff => {
                     let frac = if c.kind == Kind::TimerOn {
@@ -1154,23 +1201,57 @@ impl App {
                         None,
                     ));
                 }
-                Kind::Motor1 | Kind::Motor3 => {
-                    let (s, col) = match c.st.motor {
+                Kind::Motor1 | Kind::Motor3 | Kind::Motor6 => {
+                    let (s, mut col) = match c.st.motor {
                         1 => (t("girando ↻", "running ↻"), Color32::from_rgb(0, 110, 230)),
                         -1 => (t("girando ↺", "running ↺"), Color32::from_rgb(0, 110, 230)),
                         _ if c.st.hum => (t("falta de fase!", "missing phase!"), Color32::from_rgb(220, 140, 0)),
                         _ => (t("parado", "stopped"), Color32::GRAY),
                     };
-                    rows.push((c.tag.clone(), s.into(), col, None));
+                    let mut s = s.to_string();
+                    if c.st.motor != 0 {
+                        if c.kind == Kind::Motor6 {
+                            s.push_str(match c.st.conn {
+                                1 => " Y",
+                                2 => " Δ",
+                                _ => "",
+                            });
+                        }
+                        s.push_str(&format!(" {:.0} V", c.st.volt));
+                        match c.st.vstat {
+                            -1 => {
+                                s.push_str(t(" – subtensão", " – under-voltage"));
+                                col = Color32::from_rgb(214, 130, 0);
+                            }
+                            1 => {
+                                s.push_str(t(" – sobretensão", " – over-voltage"));
+                                col = Color32::from_rgb(220, 53, 69);
+                            }
+                            2 => {
+                                s.push_str(t(" – CA/CC errado", " – wrong AC/DC"));
+                                col = Color32::from_rgb(130, 60, 190);
+                            }
+                            _ => {}
+                        }
+                    }
+                    rows.push((c.tag.clone(), s, col, None));
                 }
                 Kind::Lamp | Kind::Buzzer => {
                     let on = c.st.energized;
-                    rows.push((
-                        c.tag.clone(),
-                        if on { t("aceso", "on") } else { t("apagado", "off") }.into(),
-                        if on { Color32::from_rgb(25, 160, 85) } else { Color32::GRAY },
-                        None,
-                    ));
+                    let (state, col) = if c.st.burnt {
+                        (format!("{} ({:.0} V)", t("queimada", "burnt"), c.st.volt), Color32::from_rgb(220, 53, 69))
+                    } else {
+                        match c.st.vstat {
+                            -1 if on => (
+                                format!("{} {:.0} V", t("fraca – subtensão", "dim – under-voltage"), c.st.volt),
+                                Color32::from_rgb(214, 130, 0),
+                            ),
+                            2 => (t("CA/CC errado", "wrong AC/DC").to_string(), Color32::from_rgb(130, 60, 190)),
+                            _ if on => (format!("{} {:.0} V", t("aceso", "on"), c.st.volt), Color32::from_rgb(25, 160, 85)),
+                            _ => (t("apagado", "off").to_string(), Color32::GRAY),
+                        }
+                    };
+                    rows.push((c.tag.clone(), state, col, None));
                 }
                 _ => {}
             }
@@ -1773,6 +1854,7 @@ impl App {
                         preset: 3.0,
                         color: 0,
                         num: 0,
+                        volt: 0,
                         st: Default::default(),
                     };
                     let mut cx = DrawCtx::plain(Color32::from_rgba_unmultiplied(0, 110, 230, 150), th.dark);
@@ -2175,6 +2257,7 @@ fn symbol_preview(p: &egui::Painter, icon: Rect, kind: Kind, max_scale: f32, dar
         preset: 3.0,
         color: 0,
         num: 0,
+        volt: 0,
         st: Default::default(),
     };
     let cx = DrawCtx::plain(draw::Theme::get(dark).ink, dark);

@@ -49,6 +49,28 @@ O SimuEletro é uma releitura moderna dos simuladores clássicos de comandos el�
 - **Celular / tela estreita** (tema escuro, no estilo do app SimuRelay): barra superior com **MENU · PEÇAS · SIMULAR · FIO · MAIS · DESFAZER · REFAZER**; a biblioteca **PEÇAS** abre por cima da folha com um seletor de **categorias coloridas** e uma grade de símbolos. Com uma peça selecionada, a barra muda para **VALORES · GIRAR · COPIAR · EXCLUIR**. Há botões de zoom **− / +** no canto; arraste com um dedo para mover a folha, use a pinça para o zoom e **arraste de um borne a outro para ligar um fio**.
 - Português e inglês (menu Ver → Idioma).
 
+## Tensões
+
+As tensões são escolhidas numa **lista suspensa** nas propriedades: só existem valores tabelados, sem digitar números e sem cálculos complexos.
+
+| Peça | Opções |
+|---|---|
+| Fases L1/L2/L3 (sistema CA) | **220 V / 380 V** ou **127 V / 220 V** (fase / linha) |
+| Fonte CC (+V) | **+24 V** ou **+12 V** |
+| Lâmpadas/LEDs, sirene, bobinas e temporizadores | 220, 127, 380 ou 24 V CA · 24 ou 12 V CC |
+| Motor monofásico/CC (fechamento interno) | 220 ou 127 V CA · 24 ou 12 V CC |
+| Motor trifásico (fechamento interno) | 380, 220 ou 440 V entre fases |
+| Motor trifásico 6 terminais | Δ 220 / Y 380 V · Δ 380 / Y 660 V · Δ 127 / Y 220 V |
+
+Na simulação, a tensão aplicada é comparada com a nominal (tolerância de ±10%):
+
+- **Sinaleiras/LEDs:** acima da nominal **queimam** (ficam queimadas até parar a simulação); abaixo **brilham mais fraco** e mostram **subtensão**; CA no lugar de CC (ou o contrário) não acendem.
+- **Bobinas:** em subtensão **não atracam**; em sobretensão atracam, mas mostram o aviso.
+- **Motores:** o de 6 terminais detecta se foi fechado em **estrela** (U2-V2-W2 juntos) ou **triângulo** (U1-W2, V1-U2, W1-V2) e avisa subtensão (gira mais devagar) ou sobretensão.
+- Os avisos aparecem **ao lado da peça** na folha e no painel de estado.
+
+O exemplo **Arquivo → Exemplos → Tensões: motor Y/Δ e lâmpadas** mostra tudo isso.
+
 ## Compartilhar por link
 
 Como no simulador Falstad, um circuito pode ser enviado como **link**: **Arquivo → 🔗 Compartilhar link** (ou ☰ MENU no celular).

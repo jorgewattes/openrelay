@@ -1,6 +1,6 @@
 //! Drawing of the electrical symbols (IEC style) on an egui painter.
 
-use crate::circuit::{pin_numbers, rot_f, Comp, Kind, Pot, LAMP_COLORS};
+use crate::circuit::{pin_numbers, rot_f, t, volt_badge, Comp, Kind, Pot, LAMP_COLORS};
 use eframe::egui::{self, Align2, Color32, FontId, Painter, Pos2, Shape, Stroke};
 use std::f32::consts::PI;
 
@@ -239,6 +239,7 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
             };
             d.circle(0.0, -1.0, 0.5, Some(fill));
             let label = match c.kind.source() {
+                Some(Pot::P24) if c.volt == 1 => "+12V",
                 Some(pt) => pt.name(),
                 None => "",
             };
@@ -356,15 +357,31 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
             d.line_c(0.0, 4.3, 0.0, 6.0, pc(1));
             let [r, g, b] = LAMP_COLORS[c.color as usize % LAMP_COLORS.len()].2;
             let on = cx.sim && cx.act;
+            // Brightness follows the applied voltage (dim on under-voltage).
+            let bright = if on { c.st.bright.clamp(0.0, 1.0) } else { 0.0 };
             if on {
-                let glow = Color32::from_rgba_unmultiplied(r, g, b, 70);
-                p.circle_filled(xf.p(0.0, 3.0), 2.3 * xf.s, glow);
+                let glow = Color32::from_rgba_unmultiplied(r, g, b, (70.0 * bright) as u8);
+                p.circle_filled(xf.p(0.0, 3.0), (1.5 + 0.8 * bright) * xf.s, glow);
             }
-            let fill = if on { Some(Color32::from_rgb(r, g, b)) } else { Some(cx.paper) };
+            let burnt = cx.sim && c.st.burnt;
+            let fill = if burnt {
+                Some(Color32::from_rgb(60, 52, 48))
+            } else if on {
+                Some(cx.paper.lerp_to_gamma(Color32::from_rgb(r, g, b), 0.25 + 0.75 * bright))
+            } else {
+                Some(cx.paper)
+            };
             d.circle(0.0, 3.0, 1.3, fill);
             let k = 1.3 * 0.7071;
             d.line(-k, 3.0 - k, k, 3.0 + k);
             d.line(-k, 3.0 + k, k, 3.0 - k);
+            if burnt {
+                // Broken filament / crack.
+                let red = Color32::from_rgb(235, 70, 60);
+                d.line_c(-0.4, 1.4, 0.2, 2.4, red);
+                d.line_c(0.2, 2.4, -0.3, 3.2, red);
+                d.line_c(-0.3, 3.2, 0.35, 4.4, red);
+            }
         }
         Buzzer => {
             d.line_c(0.0, 0.0, 0.0, 2.2, pc(0));
@@ -393,6 +410,32 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
             d.line_c(9.0, 5.5, 5.6, 5.5, pe);
             motor_body(&d, 3.0, 5.5, 2.6, c, cx, "3~");
         }
+        Motor6 => {
+            // Top: U1 V1 W1, bottom: U2 V2 W2, right: PE.
+            d.line_c(0.0, 0.0, 0.0, 2.2, pc(0));
+            d.line_c(0.0, 2.2, 1.7, 3.25, pc(0));
+            d.line_c(3.0, 0.0, 3.0, 2.9, pc(1));
+            d.line_c(6.0, 0.0, 6.0, 2.2, pc(2));
+            d.line_c(6.0, 2.2, 4.3, 3.25, pc(2));
+            d.line_c(0.0, 11.0, 0.0, 8.8, pc(3));
+            d.line_c(0.0, 8.8, 1.7, 7.75, pc(3));
+            d.line_c(3.0, 11.0, 3.0, 8.1, pc(4));
+            d.line_c(6.0, 11.0, 6.0, 8.8, pc(5));
+            d.line_c(6.0, 8.8, 4.3, 7.75, pc(5));
+            let pe = pc(6);
+            d.line_c(9.0, 0.0, 9.0, 5.5, pe);
+            d.line_c(9.0, 5.5, 5.6, 5.5, pe);
+            let label = if cx.sim {
+                match c.st.conn {
+                    1 => "3~ Y",
+                    2 => "3~ Δ",
+                    _ => "3~",
+                }
+            } else {
+                "3~ Y/Δ"
+            };
+            motor_body(&d, 3.0, 5.5, 2.6, c, cx, label);
+        }
     }
 
     if cx.numbers {
@@ -408,6 +451,9 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
             d.text(x, y, s, 0.85, Align2::LEFT_CENTER, cx.num);
         }
     }
+    if cx.tag {
+        voltage_marks(p, xf, c, cx);
+    }
     if cx.tag && !c.tag.is_empty() {
         let (x0, y0, x1, _y1) = c.world_bounds();
         let s = xf.s;
@@ -416,7 +462,7 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
         let font = FontId::proportional(1.15 * s);
         if c.rot % 2 == 0 {
             let mid = match c.kind {
-                Motor3 => c.pos.y as f32 + if c.rot == 0 { 5.5 } else { -5.5 },
+                Motor3 | Motor6 => c.pos.y as f32 + if c.rot == 0 { 5.5 } else { -5.5 },
                 _ => c.pos.y as f32 + if c.rot == 0 { 3.0 } else { -3.0 },
             };
             let pos = origin + egui::vec2((x0 - 0.4) * s, mid * s);
@@ -426,6 +472,64 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
             p.text(pos, Align2::CENTER_BOTTOM, text, font, cx.tag_col);
         }
     }
+}
+
+/// Rated voltage under the tag, and during simulation a warning badge beside
+/// the part when the applied voltage is wrong (under / over / burnt / AC-DC).
+fn voltage_marks(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
+    let s = xf.s;
+    let origin = xf.o - egui::vec2(c.pos.x as f32 * s, c.pos.y as f32 * s);
+    let (x0, y0, x1, y1) = c.world_bounds();
+    let w = |x: f32, y: f32| origin + egui::vec2(x * s, y * s);
+    let mid = match c.kind {
+        Kind::Motor3 | Kind::Motor6 if c.rot == 0 => c.pos.y as f32 + 5.5,
+        _ => (y0 + y1) / 2.0,
+    };
+    // Rated voltage, small, under the tag (left of the part).
+    if cx.numbers && c.rot % 2 == 0 {
+        if let Some(b) = volt_badge(c) {
+            if !c.kind.is_terminal() {
+                p.text(
+                    w(x0 - 0.4, mid + 1.3),
+                    Align2::RIGHT_CENTER,
+                    b,
+                    FontId::proportional((0.85 * s).max(5.5)),
+                    cx.num,
+                );
+            }
+        }
+    }
+    if !cx.sim {
+        return;
+    }
+    let (text, col) = if c.st.burnt {
+        (format!("⚠ {} {:.0} V", t("QUEIMADA", "BURNT"), c.st.volt), Color32::from_rgb(200, 40, 30))
+    } else {
+        match c.st.vstat {
+            -1 if c.st.volt > 0.0 => (
+                format!("⚠ {} {:.0} V", t("Subtensão", "Under-voltage"), c.st.volt),
+                Color32::from_rgb(214, 130, 0),
+            ),
+            1 => (
+                format!("⚠ {} {:.0} V", t("Sobretensão", "Over-voltage"), c.st.volt),
+                Color32::from_rgb(200, 40, 30),
+            ),
+            2 => (
+                format!("⚠ {} ({:.0} V)", t("CA/CC errado", "Wrong AC/DC"), c.st.volt),
+                Color32::from_rgb(130, 60, 190),
+            ),
+            _ => return,
+        }
+    };
+    let font = FontId::proportional((0.95 * s).clamp(7.0, 16.0));
+    let g = p.layout_no_wrap(text, font, Color32::WHITE);
+    let pad = egui::vec2(5.0, 2.0);
+    // Centred just under the part, so neighbours in a row don't get covered.
+    let _ = mid;
+    let pos = w((x0 + x1) / 2.0, y1 + 0.5) - egui::vec2(g.size().x / 2.0 + pad.x, 0.0);
+    let r = egui::Rect::from_min_size(pos, g.size() + pad * 2.0);
+    p.rect_filled(r, 4.0, col);
+    p.galley(pos + pad, g, Color32::WHITE);
 }
 
 fn motor_body(d: &D, x: f32, y: f32, r: f32, c: &Comp, cx: &DrawCtx, kind: &str) {

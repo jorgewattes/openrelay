@@ -10,7 +10,7 @@ use crate::circuit::{Circuit, Kind, P};
 pub const PUBLIC_URL: &str = "https://jorgewattes.github.io/simueletro/";
 
 /// Stable numbering of the parts inside links. Only ever append to this list.
-const KINDS: [Kind; 27] = [
+const KINDS: [Kind; 28] = [
     Kind::TermL1,
     Kind::TermL2,
     Kind::TermL3,
@@ -38,13 +38,14 @@ const KINDS: [Kind; 27] = [
     Kind::Buzzer,
     Kind::Motor1,
     Kind::Motor3,
+    Kind::Motor6,
 ];
 
 fn kind_index(k: Kind) -> usize {
     KINDS.iter().position(|&x| x == k).unwrap_or(0)
 }
 
-/// Compact text: `1~comp;comp…~wire;wire…`, comp = `kind,x,y,rot,tag,preset×10,color,num`.
+/// Compact text: `1~comp;comp…~wire;wire…`, comp = `kind,x,y,rot,tag[,preset×10,color,num[,volt]]`.
 fn to_text(c: &Circuit) -> String {
     let comps: Vec<String> = c
         .comps
@@ -53,8 +54,11 @@ fn to_text(c: &Circuit) -> String {
             let tag: String = p.tag.chars().filter(|ch| !",;~".contains(*ch)).collect();
             let mut s = format!("{},{},{},{},{}", kind_index(p.kind), p.pos.x, p.pos.y, p.rot, tag);
             let preset = (p.preset * 10.0).round() as i64;
-            if preset != 30 || p.color != 0 || p.num != 0 {
+            if preset != 30 || p.color != 0 || p.num != 0 || p.volt != 0 {
                 s.push_str(&format!(",{preset},{},{}", p.color, p.num));
+                if p.volt != 0 {
+                    s.push_str(&format!(",{}", p.volt));
+                }
             }
             s
         })
@@ -89,6 +93,7 @@ fn from_text(s: &str) -> Option<Circuit> {
             comp.preset = (f[5].parse::<i64>().ok()? as f32 / 10.0).clamp(0.1, 600.0);
             comp.color = f[6].parse().ok()?;
             comp.num = f[7].parse().ok()?;
+            comp.volt = f.get(8).and_then(|v| v.parse().ok()).unwrap_or(0);
         } else {
             comp.preset = 3.0;
             comp.color = 0;
@@ -194,7 +199,10 @@ mod tests {
             assert_eq!(back.comps.len(), c.comps.len());
             assert_eq!(back.wires, c.wires);
             for (a, b) in c.comps.iter().zip(&back.comps) {
-                assert_eq!((a.kind, a.pos, a.rot, &a.tag, a.color, a.num), (b.kind, b.pos, b.rot, &b.tag, b.color, b.num));
+                assert_eq!(
+                    (a.kind, a.pos, a.rot, &a.tag, a.color, a.num, a.volt),
+                    (b.kind, b.pos, b.rot, &b.tag, b.color, b.num, b.volt)
+                );
                 assert!((a.preset - b.preset).abs() < 0.05);
             }
             assert!(url.len() < 1200, "link too long: {}", url.len());
