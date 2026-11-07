@@ -380,6 +380,16 @@ impl Sim {
         }
         // Loads.
         let nets = &self.nets;
+        // Brake rectifiers: (AC in, AC in, +, −, DC factor).
+        let rects: Vec<(P, P, P, P, f32)> = circ
+            .comps
+            .iter()
+            .filter(|r| r.kind == Kind::Rectifier)
+            .map(|r| {
+                let f = *crate::circuit::RECT_FACTORS.get(r.volt as usize).unwrap_or(&0.45);
+                (r.pin(0), r.pin(1), r.pin(2), r.pin(3), f)
+            })
+            .collect();
         for c in circ.comps.iter_mut() {
             match c.kind {
                 Kind::Lamp | Kind::Buzzer => {
@@ -506,6 +516,82 @@ impl Sim {
                         }
                     }
                 }
+                Kind::MotorDahlander | Kind::Motor2W => {
+                    // Pins: 0 1U 1 1V 2 1W 3 2U 4 2V 5 2W.
+                    let pins = c.pins();
+                    let low_pts = [pins[0], pins[1], pins[2]];
+                    let high_pts = [pins[3], pins[4], pins[5]];
+                    let low = rotation(nets, low_pts);
+                    let high = rotation(nets, high_pts);
+                    let conn = if c.kind == Kind::MotorDahlander {
+                        // Low speed: Δ on 1U 1V 1W with 2U 2V 2W free.
+                        // High speed: YY on 2U 2V 2W with 1U 1V 1W tied together (and free).
+                        let tied = nets.same(pins[0], pins[1]) && nets.same(pins[1], pins[2]);
+                        match (low, high) {
+                            (Some(r), None) if !tied => Some((1u8, r)),
+                            (None, Some(r)) if tied && nets.src_at(pins[0]).is_none() => Some((2, r)),
+                            (Some(_), Some(_)) => Some((3, (0, 0))),
+                            _ => None,
+                        }
+                    } else {
+                        match (low, high) {
+                            (Some(r), None) => Some((1u8, r)),
+                            (None, Some(r)) => Some((2, r)),
+                            (Some(_), Some(_)) => Some((3, (0, 0))),
+                            _ => None,
+                        }
+                    };
+                    c.st.conn = conn.map(|x| x.0).unwrap_or(0);
+                    match conn {
+                        Some((1 | 2, (dir, lvl))) => {
+                            let vl = ac_system(lvl).1;
+                            let s = nominal(c).map(|n| check(n, (Cur::Ac, vl))).unwrap_or(0);
+                            let runs = s != 1;
+                            c.st.motor = if runs { dir } else { 0 };
+                            c.st.energized = runs;
+                            c.st.hum = false;
+                            c.st.volt = vl;
+                            c.st.vstat = s;
+                        }
+                        _ => {
+                            // Both speeds at once, or a partial connection: no rotation.
+                            c.st.motor = 0;
+                            c.st.energized = false;
+                            c.st.hum = c.st.conn == 3 || low.is_some() || high.is_some();
+                            c.st.volt = 0.0;
+                            c.st.vstat = 0;
+                        }
+                    }
+                }
+                Kind::Brake => {
+                    // Fed by a rectifier module (DC = factor × its AC input) or directly from DC.
+                    let pins = c.pins();
+                    let mut got: Option<(Cur, f32)> = volts(nets, pins[0], pins[1]).map(|(k, v, _)| (k, v));
+                    for r in rects.iter() {
+                        let (ac1, ac2, plus, minus, factor) = *r;
+                        let joined = (nets.same(pins[0], plus) && nets.same(pins[1], minus))
+                            || (nets.same(pins[0], minus) && nets.same(pins[1], plus));
+                        if joined {
+                            if let Some((Cur::Ac, v, _)) = volts(nets, ac1, ac2) {
+                                got = Some((Cur::Dc, v * factor));
+                            }
+                        }
+                    }
+                    match (got, nominal(c)) {
+                        (Some((k, v)), Some(n)) => {
+                            let s = check(n, (k, v));
+                            c.st.volt = v;
+                            c.st.vstat = s;
+                            // Released (motor free) only at its rated DC voltage.
+                            c.st.energized = s == 0;
+                        }
+                        _ => {
+                            c.st.volt = 0.0;
+                            c.st.vstat = 0;
+                            c.st.energized = false;
+                        }
+                    }
+                }
                 Kind::Motor1S | Kind::Motor1D => {
                     // Main winding supply and start winding; reversing Z1/Z2 reverses rotation.
                     let pins = c.pins();
@@ -601,7 +687,8 @@ impl Sim {
             }
             if c.st.motor != 0 {
                 // Under-voltage turns slower.
-                let speed = if c.st.vstat == -1 { 1.8 } else { 6.0 };
+                let low_speed = matches!(c.kind, Kind::MotorDahlander | Kind::Motor2W) && c.st.conn == 1;
+                let speed = if c.st.vstat == -1 { 1.8 } else if low_speed { 3.0 } else { 6.0 };
                 c.st.angle += dt * speed * c.st.motor as f32;
             }
         }
@@ -1033,38 +1120,173 @@ mod tests {
     fn changeover_contact_switches() {
         let mut c = Circuit::default();
         c.add(Kind::TermL1, (0, 0).into(), 0, "");
-        c.add(Kind::TermN, (20, 40).into(), 2, "");
         c.add(Kind::PushNo, (0, 2).into(), 0, "S1");
         c.add(Kind::Coil, (0, 10).into(), 0, "KM1");
         c.wire((0, 0), (0, 2));
         c.wire((0, 8), (0, 10));
         c.wire((0, 16), (0, 40));
-        c.wire((0, 40), (20, 40));
-        // Changeover KM1: common fed from L1, NC → H1, NO → H2.
-        c.add(Kind::ContactCo, (10, 4).into(), 0, "KM1");
-        c.wire((0, 1), (10, 1));
-        c.wire((10, 1), (10, 10));
-        c.add(Kind::Lamp, (10, 20).into(), 0, "H1");
-        c.add(Kind::Lamp, (13, 20).into(), 0, "H2");
-        // NC at (10,4)? pins: C (10,10), NC (10,4), NO (13,4).
-        c.wires.retain(|w| !(w.a == P::new(10, 1) && w.b == P::new(10, 10)));
-        c.wire((10, 1), (10, 0));
-        c.wire((10, 0), (8, 0));
-        c.wire((8, 0), (8, 12));
-        c.wire((8, 12), (10, 12));
-        c.wire((10, 12), (10, 10));
-        c.wire((10, 4), (10, 3));
-        c.wire((10, 3), (11, 3));
-        c.wire((11, 3), (11, 20));
-        c.wire((11, 20), (10, 20));
-        c.wire((13, 4), (13, 20));
-        c.wire((10, 26), (10, 40));
-        c.wire((13, 26), (13, 40));
+        c.wire((0, 40), (22, 40));
+        c.wire((0, 40), (0, 42));
+        c.add(Kind::TermN, (0, 42).into(), 2, "");
+        // Changeover KM1: common (20,10) on top fed from L1, NC (18,16) → H1, NO (22,16) → H2.
+        c.add(Kind::ContactCo, (20, 10).into(), 0, "KM1");
+        c.wire((0, 1), (20, 1));
+        c.wire((20, 1), (20, 10));
+        c.add(Kind::Lamp, (18, 20).into(), 0, "H1");
+        c.add(Kind::Lamp, (22, 20).into(), 0, "H2");
+        c.wire((18, 16), (18, 20));
+        c.wire((22, 16), (22, 20));
+        c.wire((18, 26), (18, 40));
+        c.wire((22, 26), (22, 40));
         let mut s = Sim::default();
         s.start(&mut c);
         assert!(get(&c, Kind::Lamp, "H1").st.energized && !get(&c, Kind::Lamp, "H2").st.energized);
         press(&mut c, "S1", true);
         s.step(&mut c, 0.02);
         assert!(!get(&c, Kind::Lamp, "H1").st.energized && get(&c, Kind::Lamp, "H2").st.energized);
+    }
+
+    fn hold(c: &mut Circuit, s: &mut Sim, tag: &str, steps: usize) {
+        press(c, tag, true);
+        for _ in 0..3 {
+            s.step(c, 0.02);
+        }
+        press(c, tag, false);
+        for _ in 0..steps {
+            s.step(c, 0.02);
+        }
+    }
+
+    fn ex(n: usize) -> Circuit {
+        (examples::list()[n - 1].1)()
+    }
+
+    #[test]
+    fn examples_start_cleanly() {
+        for (name, f) in examples::list() {
+            let mut c = f();
+            let mut s = Sim::default();
+            s.start(&mut c);
+            assert!(s.fault.is_none(), "{name}: {:?}", s.fault);
+            assert_eq!(examples::list().len(), 18);
+        }
+    }
+
+    #[test]
+    fn six_terminal_examples_star_and_delta() {
+        for (n, conn) in [(2, 1), (3, 2)] {
+            let mut c = ex(n);
+            let mut s = Sim::default();
+            s.start(&mut c);
+            hold(&mut c, &mut s, "S1", 2);
+            let m = get(&c, Kind::Motor6X, "M1");
+            assert_eq!((m.st.motor != 0, m.st.conn, m.st.vstat), (true, conn, 0), "example {n}");
+            assert!(s.fault.is_none(), "{:?}", s.fault);
+        }
+    }
+
+    #[test]
+    fn double_interlock_swaps_direction_directly() {
+        let mut c = ex(5);
+        let mut s = Sim::default();
+        s.start(&mut c);
+        hold(&mut c, &mut s, "S1", 2);
+        assert!(get(&c, Kind::Coil, "KM1").st.energized);
+        let d1 = get(&c, Kind::Motor3, "M1").st.motor;
+        // S2 alone (no stop) drops KM1 and starts KM2.
+        hold(&mut c, &mut s, "S2", 2);
+        assert!(!get(&c, Kind::Coil, "KM1").st.energized);
+        assert!(get(&c, Kind::Coil, "KM2").st.energized);
+        let d2 = get(&c, Kind::Motor3, "M1").st.motor;
+        assert!(d1 != 0 && d2 == -d1, "{d1} {d2}");
+        assert!(s.fault.is_none(), "{:?}", s.fault);
+    }
+
+    #[test]
+    fn cascade_starts_second_motor_later() {
+        let mut c = ex(6);
+        let mut s = Sim::default();
+        s.start(&mut c);
+        hold(&mut c, &mut s, "S1", 2);
+        assert_ne!(get(&c, Kind::Motor3, "M1").st.motor, 0);
+        assert_eq!(get(&c, Kind::Motor3, "M2").st.motor, 0);
+        for _ in 0..300 {
+            s.step(&mut c, 0.02);
+        }
+        assert_ne!(get(&c, Kind::Motor3, "M2").st.motor, 0);
+        assert!(s.fault.is_none(), "{:?}", s.fault);
+    }
+
+    #[test]
+    fn single_phase_examples() {
+        let mut c = ex(8);
+        let mut s = Sim::default();
+        s.start(&mut c);
+        hold(&mut c, &mut s, "S1", 2);
+        assert_ne!(get(&c, Kind::Motor1S, "M1").st.motor, 0);
+        assert!(s.fault.is_none(), "{:?}", s.fault);
+        let mut c = ex(9);
+        s.start(&mut c);
+        hold(&mut c, &mut s, "S1", 2);
+        let d1 = get(&c, Kind::Motor1S, "M1").st.motor;
+        hold(&mut c, &mut s, "S0", 2);
+        assert_eq!(get(&c, Kind::Motor1S, "M1").st.motor, 0);
+        hold(&mut c, &mut s, "S2", 2);
+        let d2 = get(&c, Kind::Motor1S, "M1").st.motor;
+        assert!(d1 != 0 && d2 == -d1, "{d1} {d2}");
+        assert!(s.fault.is_none(), "{:?}", s.fault);
+    }
+
+    #[test]
+    fn two_speed_examples() {
+        for (n, kind) in [(10, Kind::MotorDahlander), (15, Kind::Motor2W)] {
+            let mut c = ex(n);
+            let mut s = Sim::default();
+            s.start(&mut c);
+            hold(&mut c, &mut s, "S1", 2);
+            let m = get(&c, kind, "M1");
+            assert_eq!((m.st.motor != 0, m.st.conn, m.st.vstat), (true, 1, 0), "example {n} low");
+            // Interlocked: S2 does nothing until stopped.
+            hold(&mut c, &mut s, "S2", 2);
+            assert_eq!(get(&c, kind, "M1").st.conn, 1);
+            hold(&mut c, &mut s, "S0", 2);
+            hold(&mut c, &mut s, "S2", 2);
+            let m = get(&c, kind, "M1");
+            assert_eq!((m.st.motor != 0, m.st.conn, m.st.vstat), (true, 2, 0), "example {n} high");
+            assert!(s.fault.is_none(), "{:?}", s.fault);
+        }
+    }
+
+    #[test]
+    fn twelve_terminal_examples_run_at_rated_voltage() {
+        let mut conns = vec![];
+        for n in 11..=14 {
+            let mut c = ex(n);
+            let mut s = Sim::default();
+            s.start(&mut c);
+            hold(&mut c, &mut s, "S1", 2);
+            let m = get(&c, Kind::Motor12, "M1");
+            assert_eq!((m.st.motor != 0, m.st.vstat), (true, 0), "example {n}: conn {} volt {}", m.st.conn, m.st.volt);
+            assert!(s.fault.is_none(), "{:?}", s.fault);
+            conns.push(m.st.conn);
+        }
+        conns.sort();
+        conns.dedup();
+        assert_eq!(conns.len(), 4, "four different connections");
+    }
+
+    #[test]
+    fn brake_releases_only_while_motor_runs() {
+        let mut c = ex(16);
+        let mut s = Sim::default();
+        s.start(&mut c);
+        assert!(!get(&c, Kind::Brake, "YB1").st.energized);
+        hold(&mut c, &mut s, "S1", 2);
+        assert_ne!(get(&c, Kind::Motor3, "M1").st.motor, 0);
+        let b = get(&c, Kind::Brake, "YB1");
+        assert!(b.st.energized, "brake released: {} V", b.st.volt);
+        hold(&mut c, &mut s, "S0", 2);
+        assert!(!get(&c, Kind::Brake, "YB1").st.energized);
+        assert!(s.fault.is_none(), "{:?}", s.fault);
     }
 }

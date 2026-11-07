@@ -31,10 +31,12 @@ O SimuEletro é uma releitura moderna dos simuladores clássicos de comandos el�
   - **Cargas** (marrom): lâmpada sinalizadora (5 cores) e sirene.
   - **Contatores** (ciano): contatos principais de 3 polos.
   - **Proteções** (vermelho): fusível, **disjuntores termomagnéticos** monopolar, bipolar e tripolar (disparo térmico e magnético), **disjuntor-motor tripolar** (elemento térmico em cada polo e manopla), **DR bipolar e tetrapolar** (desarma com fuga de corrente para a terra ou com um clique, como o botão de teste) e relé térmico de sobrecarga.
-  - **Motores** (verde-escuro), com bobinas coloridas (U azul, V vermelha, W preta) e nomes dos terminais: monofásico/CC; monofásico com **bobina auxiliar de partida** (U1-U2, Z1-Z2); monofásico **2 tensões** 127/220 V (U1-U2, U3-U4 e auxiliar Z1-Z2); trifásico de **3 terminais** com estrela interna; trifásico de **6 terminais** com bobinas cruzadas (W2 U2 V2 embaixo, triângulo com pontes retas) ou **verticais**; e trifásico de **12 terminais** (ΔΔ 220 / YY 380 / Δ 440 / Y 760 V).
+  - **Motores** (verde-escuro), com bobinas coloridas (U azul, V vermelha, W preta) e nomes dos terminais: monofásico/CC; monofásico com **bobina auxiliar de partida** (U1-U2, Z1-Z2); monofásico **2 tensões** 127/220 V (U1-U2, U3-U4 e auxiliar Z1-Z2); trifásico de **3 terminais** com estrela interna; trifásico de **6 terminais** com bobinas cruzadas (W2 U2 V2 embaixo, triângulo com pontes retas) ou **verticais**; trifásico de **12 terminais** com corpo de motor (ΔΔ 220 / YY 380 / Δ 440 / Y 760 V); **Dahlander** (2 velocidades) e **dois enrolamentos**.
+  - **Freio eletromagnético** (Cargas) e **módulo retificador** (Outros): o freio CC só solta com a tensão nominal vinda do retificador.
 - Ligação por fios com cantos automáticos, junções marcadas e bornes livres destacados.
 - Identificação automática (KM1, S1, H1, Q1…) e numeração dos bornes (13-14, 21-22, A1-A2, 1-2…).
-- Contatos **seguem** a bobina, o temporizador ou o disjuntor com a mesma identificação.
+- Contatos **seguem** a bobina, o temporizador ou o disjuntor (campo **Segue**); um contato colocado sem bobina na folha fica sem "segue". O número do contato pode ser trocado em qualquer contato, inclusive de relé térmico e temporizador (padrão **9**: 95-96 / 97-98); caixa vazia ou **–** omite o número.
+- Contato **comutador** (NF/NA) com o comum centralizado em cima.
 - **Botoeiras com vários contatos:** dê a mesma identificação (ex.: S1) a vários contatos NA/NF e escolha o **Contato nº** nas propriedades (13-14, 21-22, 33-34…); na simulação todos mudam juntos. Use **–** no Contato nº para omitir o número (terminais 1-2 / 3-4).
 - Fios com cor própria, diferente dos símbolos.
 - Selecionar, mover (os fios acompanham), girar, excluir, desfazer e refazer.
@@ -52,13 +54,13 @@ O SimuEletro é uma releitura moderna dos simuladores clássicos de comandos el�
 
 ### Telas
 - **Computador:** menus, barra de ferramentas, lista de componentes à esquerda e propriedades à direita.
-- **Celular / tela estreita** (tema escuro, no estilo do app SimuRelay): barra superior com **MENU · PEÇAS · SIMULAR · FIO · MAIS · DESFAZER · REFAZER**; a biblioteca **PEÇAS** abre por cima da folha com um seletor de **categorias coloridas** e uma grade de símbolos. Com uma peça selecionada, a barra muda para **VALORES · GIRAR · COPIAR · EXCLUIR**. Há botões de zoom **− / +** e **⊡ (ajustar aos componentes)** no canto, e a moldura da página aparece também no celular. O navegador em **retrato** usa este mesmo layout; arraste com um dedo para mover a folha, use a pinça para o zoom e **arraste de um borne a outro para ligar um fio**.
-- **Modo claro e modo escuro** (Ver → Tema, ou MAIS no celular). No modo Automático, o celular segue o padrão do aparelho e o computador fica claro.
+- **Celular / tela estreita** (no estilo do app SimuRelay): barra superior com **MENU · PEÇAS · SIMULAR · FIO · MAIS · DESFAZER · REFAZER**; a biblioteca **PEÇAS** abre por cima da folha com um seletor de **categorias coloridas** e uma grade de símbolos. Com uma peça selecionada, a barra muda para **VALORES · GIRAR · COPIAR · EXCLUIR**. Há botões de zoom **− / +** e **⊡ (ajustar aos componentes)** no canto, e a moldura da página aparece também no celular. O navegador em **retrato** usa este mesmo layout; arraste com um dedo para mover a folha, use a pinça para o zoom e **arraste de um borne a outro para ligar um fio**.
+- **Modo claro por padrão**; o modo escuro ou Automático (segue o aparelho) pode ser escolhido em Ver → Tema, ou MAIS no celular.
 - Português e inglês (menu Ver → Idioma).
 
 ### Exportar e imprimir
-- **Arquivo → Exportar imagem (tudo)** ou **(seleção)**: salva um PNG do desenho, em fundo branco.
-- **Arquivo → Imprimir / salvar em PDF** (Ctrl+P): cria uma página A4 com o título e o diagrama, pronta para imprimir.
+- **Arquivo → Exportar / imprimir** (Ctrl+P) abre uma janela única para escolher: **diagrama inteiro ou só a seleção**; formato **PNG, JPEG, SVG ou PDF**; fundo **branco, com grade ou transparente** (transparente em PNG e SVG); e **baixar o arquivo** ou **copiar para a área de transferência**.
+- O PDF é uma página com o título e o diagrama, pronta para imprimir.
 - No navegador e no celular o arquivo é baixado; no computador abre a janela para escolher onde salvar.
 
 ## Tensões
@@ -106,15 +108,31 @@ A mensagem na tela mostra o motivo exato do erro, o que ajuda a corrigir.
 
 No menu **Arquivo → Exemplos** (ou ☰ no celular):
 
-1. **Partida direta com selo:** motor trifásico com disjuntor-motor, contator, botões liga/desliga e lâmpadas de "em funcionamento" e "disjuntor desarmado".
-2. **Reversão de motor:** dois contatores com intertravamento elétrico, que invertem as fases L1 e L3.
-3. **Lâmpada temporizada:** temporizador ao trabalho que acende uma lâmpada alguns segundos depois da partida.
-4. **Tensões:** motor Y/Δ e lâmpadas com tensões nominais diferentes.
-5. **Partida estrela-triângulo temporizada:** contatores KM1 (linha), KM2 (estrela) e KM3 (triângulo), temporizador KT1 e intertravamentos. O motor (Δ380/Y660 V) parte em estrela com tensão reduzida e, após 5 s, passa para triângulo.
+**Motores trifásicos**
+1. Partida direta – motor de 3 terminais (estrela interna), com lâmpadas de funcionamento e de disjuntor desarmado.
+2. Partida direta – motor de 6 terminais em estrela (Y).
+3. Partida direta – motor de 6 terminais em triângulo (Δ).
+4. Reversão – intertravamento por contatos auxiliares.
+5. Reversão – intertravamento duplo: botões com contato NF que desligam o contator oposto (troca de sentido sem parar).
+6. Partida sequencial temporizada de dois motores (M2 parte 5 s depois de M1).
+7. Partida estrela-triângulo temporizada.
 
+**Motores monofásicos**
+
+8. Partida direta – monofásico com bobina auxiliar.
+9. Reversão – monofásico com bobina auxiliar (KM1/KM2 invertem Z1-Z2).
+
+**Motores especiais**
+
+10. Motor Dahlander – duas velocidades (manual, com KM3 fechando a estrela dupla).
+11. a 14. Motor de 12 terminais – ΔΔ paralelo (220 V), YY paralelo (380 V), Δ série (440 V) e Y série (760 V).
+15. Duas velocidades – motor de dois enrolamentos (manual).
+16. Motor com freio eletromagnético alimentado por retificador.
+
+Em **Outros**: lâmpada temporizada e o exemplo de tensões.
 ## Correções (encontre o erro)
 
-Em **Arquivo → Correções** (ou ☰ MENU no celular) há 5 circuitos baseados nos exemplos, cada um com um erro sutil que impede o funcionamento. Ao abrir, a barra de status diz o que o circuito deveria fazer.
+Em **Arquivo → Correções** (ou ☰ MENU no celular) há 5 circuitos baseados nos exemplos, cada um com um erro sutil que impede o funcionamento. O título não revela o defeito; ao abrir, a barra de status diz o que o circuito deveria fazer.
 
 ## Como usar
 

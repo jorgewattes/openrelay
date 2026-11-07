@@ -151,6 +151,14 @@ pub enum Kind {
     ContactCo,
     /// Free text on the drawing.
     Text,
+    /// Two-speed Dahlander motor: 1U 1V 1W (low speed, Δ) and 2U 2V 2W (high speed, YY).
+    MotorDahlander,
+    /// Two-speed motor with two separate windings: 1U 1V 1W (low) and 2U 2V 2W (high).
+    Motor2W,
+    /// Rectifier module for an electromagnetic brake: AC in (~ ~), DC out (+ −).
+    Rectifier,
+    /// Electromagnetic brake coil (DC), released while it has its rated voltage.
+    Brake,
 }
 
 /// Palette categories, in library order, each with its marker colour
@@ -171,7 +179,7 @@ pub const CATEGORY_DEFS: [CategoryDef; 9] = {
         ("Bobinas", "Coils", [212, 194, 43], &[Coil, TimerOn, TimerOff]),
         ("Auxiliares", "Auxiliaries", [47, 134, 214], &[ContactNo, ContactNc, ContactCo]),
         ("Comandos", "Switches", [156, 72, 190], &[PushNo, PushNc, Switch, EStop, LimitNo, LimitNc]),
-        ("Cargas", "Loads", [141, 122, 110], &[Lamp, Buzzer]),
+        ("Cargas", "Loads", [141, 122, 110], &[Lamp, Buzzer, Brake]),
         ("Contatores", "Contactors", [47, 198, 214], &[Main3]),
         (
             "Proteções",
@@ -179,8 +187,13 @@ pub const CATEGORY_DEFS: [CategoryDef; 9] = {
             [214, 69, 58],
             &[Fuse, Breaker1, Breaker2, Breaker3, MotorBreaker3, Rcd2, Rcd4, Thermal3],
         ),
-        ("Motores", "Motors", [31, 150, 130], &[Motor1, Motor1S, Motor1D, Motor3, Motor6X, Motor6, Motor12]),
-        ("Outros", "Others", [150, 150, 150], &[Text]),
+        (
+            "Motores",
+            "Motors",
+            [31, 150, 130],
+            &[Motor1, Motor1S, Motor1D, Motor3, Motor6X, Motor6, Motor12, MotorDahlander, Motor2W],
+        ),
+        ("Outros", "Others", [150, 150, 150], &[Rectifier, Text]),
     ]
 };
 
@@ -223,8 +236,10 @@ const PINS_M12: &[(i32, i32)] = &[
 const PINS_M1S: &[(i32, i32)] = &[(0, 0), (0, 8), (4, 0), (4, 8)];
 /// U1 U2 U3 U4 (main halves) Z1 Z2 (auxiliary).
 const PINS_M1D: &[(i32, i32)] = &[(0, 0), (0, 10), (3, 0), (3, 10), (6, 0), (6, 10)];
-/// Common, NC, NO.
-const PINS_CO: &[(i32, i32)] = &[(0, 6), (0, 0), (3, 0)];
+/// Common (top, centred), NC (bottom left), NO (bottom right).
+const PINS_CO: &[(i32, i32)] = &[(0, 0), (-2, 6), (2, 6)];
+/// Rectifier: ~ ~ (top), + − (bottom).
+const PINS_RECT: &[(i32, i32)] = &[(0, 0), (3, 0), (0, 6), (3, 6)];
 const PINS_0: &[(i32, i32)] = &[];
 
 impl Kind {
@@ -234,8 +249,9 @@ impl Kind {
             TermL1 | TermL2 | TermL3 | TermN | TermPE | TermP24 | Term0V => PINS_1,
             Breaker3 | MotorBreaker3 | Thermal3 | Main3 => PINS_3P,
             Motor3 => PINS_M3,
-            Motor6 => PINS_M6,
+            Motor6 | MotorDahlander | Motor2W => PINS_M6,
             Motor6X => PINS_M6X,
+            Rectifier => PINS_RECT,
             Motor12 => PINS_M12,
             Motor1S => PINS_M1S,
             Motor1D => PINS_M1D,
@@ -273,7 +289,7 @@ impl Kind {
 
     pub fn is_motor(self) -> bool {
         use Kind::*;
-        matches!(self, Motor1 | Motor1S | Motor1D | Motor3 | Motor6 | Motor6X | Motor12)
+        matches!(self, Motor1 | Motor1S | Motor1D | Motor3 | Motor6 | Motor6X | Motor12 | MotorDahlander | Motor2W)
     }
 
     /// Parts the student operates with a click during the simulation.
@@ -303,12 +319,14 @@ impl Kind {
             MotorBreaker3 => (-5.6, 0.0, 7.8, 6.0),
             Thermal3 | Main3 => (-1.5, 0.0, 7.5, 6.0),
             Motor3 => (-2.0, 0.0, 9.5, 10.4),
-            Motor6 | Motor6X => (-2.0, 0.0, 9.5, 11.0),
-            Motor12 => (-1.6, 0.0, 18.5, 12.0),
+            Motor6 | Motor6X | MotorDahlander | Motor2W => (-2.0, 0.0, 9.5, 11.0),
+            Motor12 => (-2.0, 0.0, 18.5, 12.0),
+            Rectifier => (-1.4, 0.0, 4.4, 6.0),
+            Brake => (-1.8, 0.0, 1.8, 6.0),
             Motor1S => (-2.2, 0.0, 6.2, 8.0),
             Motor1D => (-2.4, 0.0, 8.4, 10.0),
             ContactNo | ContactNc => (-3.6, 0.0, 1.6, 6.0),
-            ContactCo => (-3.6, 0.0, 3.6, 6.0),
+            ContactCo => (-5.0, 0.0, 2.8, 6.0),
             Text => (0.0, -1.0, 6.0, 1.0),
             Breaker1 => (-5.0, 0.0, 1.5, 6.0),
             Breaker2 => (-5.0, 0.0, 4.5, 6.0),
@@ -363,6 +381,8 @@ impl Kind {
             Fuse | Thermal3 => "F",
             Breaker1 | Breaker2 | Breaker3 | MotorBreaker3 => "Q",
             Rcd2 | Rcd4 => "DR",
+            Rectifier => "U",
+            Brake => "YB",
             PushNo | PushNc | Switch | EStop => "S",
             LimitNo | LimitNc => "SQ",
             Coil => "KM",
@@ -415,6 +435,10 @@ impl Kind {
             Rcd4 => t("DR tetrapolar (4P)", "RCD 4P"),
             ContactCo => t("Contato auxiliar comutador (NF/NA)", "Aux changeover contact (NC/NO)"),
             Text => t("Texto", "Text"),
+            MotorDahlander => t("Motor Dahlander – 2 velocidades", "Dahlander motor – 2 speeds"),
+            Motor2W => t("Motor de dois enrolamentos – 2 velocidades", "Two-winding motor – 2 speeds"),
+            Rectifier => t("Módulo retificador do freio", "Brake rectifier module"),
+            Brake => t("Freio eletromagnético (bobina CC)", "Electromagnetic brake (DC coil)"),
         }
     }
 }
@@ -483,7 +507,7 @@ pub enum Cur {
 }
 
 /// AC supply systems: (phase-neutral, line-line) volts.
-pub const AC_SYSTEMS: [(f32, f32); 2] = [(220.0, 380.0), (127.0, 220.0)];
+pub const AC_SYSTEMS: [(f32, f32); 4] = [(220.0, 380.0), (127.0, 220.0), (254.0, 440.0), (440.0, 760.0)];
 /// DC positive terminal options.
 pub const DC_LEVELS: [f32; 2] = [24.0, 12.0];
 /// Nominal voltages of lamps, buzzers and coils (first is the default).
@@ -505,6 +529,12 @@ pub const MOTOR6_NOMINALS: [(f32, f32); 3] = [(220.0, 380.0), (380.0, 660.0), (1
 pub const MOTOR12_NOMINALS: [(f32, f32, f32, f32); 1] = [(220.0, 380.0, 440.0, 760.0)];
 /// Single-phase motor with start winding (main and auxiliary rated the same).
 pub const MOTOR1S_NOMINALS: [f32; 2] = [220.0, 127.0];
+/// Two-speed motors (Dahlander, two windings): line voltage.
+pub const MOTOR2S_NOMINALS: [f32; 3] = [380.0, 220.0, 440.0];
+/// Brake coil (DC) rated voltages.
+pub const BRAKE_NOMINALS: [f32; 3] = [180.0, 99.0, 198.0];
+/// Rectifier: DC output as a fraction of the AC input (half / full wave).
+pub const RECT_FACTORS: [f32; 2] = [0.45, 0.9];
 /// Dual-voltage single-phase motor: (parallel, series) supply voltage.
 pub const MOTOR1D_NOMINALS: [(f32, f32); 1] = [(127.0, 220.0)];
 
@@ -547,6 +577,9 @@ pub fn volt_choices(k: Kind) -> Vec<String> {
             .map(|(a, b, c, d)| format!("ΔΔ {a:.0} / YY {b:.0} / Δ {c:.0} / Y {d:.0} V"))
             .collect(),
         Motor1S => MOTOR1S_NOMINALS.iter().map(|v| format!("{} CA", vtxt(*v))).collect(),
+        MotorDahlander | Motor2W => MOTOR2S_NOMINALS.iter().map(|v| format!("{} CA ({})", vtxt(*v), t("entre fases", "line"))).collect(),
+        Brake => BRAKE_NOMINALS.iter().map(|v| format!("{} CC", vtxt(*v))).collect(),
+        Rectifier => vec![t("Meia onda (CC = 0,45 × CA)", "Half wave (DC = 0.45 × AC)").into(), t("Onda completa (CC = 0,9 × CA)", "Full wave (DC = 0.9 × AC)").into()],
         Motor1D => MOTOR1D_NOMINALS.iter().map(|(p, s)| format!("{p:.0} V {} / {s:.0} V {}", t("paralelo", "parallel"), t("série", "series"))).collect(),
         _ => vec![],
     }
@@ -558,6 +591,7 @@ pub fn volt_label(k: Kind) -> &'static str {
     match k {
         TermL1 | TermL2 | TermL3 => t("Sistema", "System"),
         TermP24 => t("Tensão", "Voltage"),
+        Rectifier => t("Tipo", "Type"),
         _ => t("Tensão nominal", "Rated voltage"),
     }
 }
@@ -574,6 +608,8 @@ pub fn nominal(c: &Comp) -> Option<(Cur, f32)> {
         Motor12 => Some((Cur::Ac, MOTOR12_NOMINALS.get(i).unwrap_or(&MOTOR12_NOMINALS[0]).0)),
         Motor1S => Some((Cur::Ac, *MOTOR1S_NOMINALS.get(i).unwrap_or(&MOTOR1S_NOMINALS[0]))),
         Motor1D => Some((Cur::Ac, MOTOR1D_NOMINALS.get(i).unwrap_or(&MOTOR1D_NOMINALS[0]).0)),
+        MotorDahlander | Motor2W => Some((Cur::Ac, *MOTOR2S_NOMINALS.get(i).unwrap_or(&MOTOR2S_NOMINALS[0]))),
+        Brake => Some((Cur::Dc, *BRAKE_NOMINALS.get(i).unwrap_or(&BRAKE_NOMINALS[0]))),
         _ => None,
     }
 }
@@ -584,7 +620,7 @@ pub fn volt_badge(c: &Comp) -> Option<String> {
     let i = c.volt as usize;
     match c.kind {
         TermL1 | TermL2 | TermL3 => AC_SYSTEMS.get(i).map(|(f, l)| format!("{f:.0}/{l:.0}V")),
-        Lamp | Buzzer | Coil | TimerOn | TimerOff | Motor1 | Motor3 | Motor1S => nominal(c).map(|(k, v)| {
+        Lamp | Buzzer | Coil | TimerOn | TimerOff | Motor1 | Motor3 | Motor1S | MotorDahlander | Motor2W | Brake => nominal(c).map(|(k, v)| {
             format!("{v:.0}V{}", if k == Cur::Ac { "~" } else { "=" })
         }),
         Motor6 | Motor6X => MOTOR6_NOMINALS.get(i).map(|(d, y)| format!("Δ{d:.0}/Y{y:.0}V")),
@@ -692,7 +728,11 @@ impl Circuit {
         self.next_id = self.next_id.max(self.comps.iter().map(|c| c.id + 1).max().unwrap_or(0));
         let id = self.next_id;
         self.next_id += 1;
-        let num = self.next_num(kind, tag);
+        let mut num = self.next_num(kind, tag);
+        // Timer / overload-relay contacts: number 9 by default (95-96, 97-98).
+        if kind.is_aux_contact() && matches!(self.device_kind(tag), Some(Kind::TimerOn | Kind::TimerOff | Kind::Thermal3)) {
+            num = 8;
+        }
         self.comps.push(Comp {
             id,
             kind,
@@ -781,7 +821,8 @@ impl Circuit {
                     c.kind.is_device()
                 }
             });
-            return dev.map(|c| c.tag.clone()).unwrap_or_else(|| "KM1".into());
+            // No coil / device on the drawing yet: leave "Segue" empty.
+            return dev.map(|c| c.tag.clone()).unwrap_or_default();
         }
         let pre = kind.prefix();
         if pre.is_empty() {
@@ -817,6 +858,7 @@ pub fn motor_terminals(k: Kind) -> &'static [&'static str] {
         Motor12 => &["U1", "V1", "W1", "U2", "V2", "W2", "U5", "V5", "W5", "U6", "V6", "W6", "PE"],
         Motor1S => &["U1", "U2", "Z1", "Z2"],
         Motor1D => &["U1", "U2", "U3", "U4", "Z1", "Z2"],
+        MotorDahlander | Motor2W => &["1U", "1V", "1W", "2U", "2V", "2W", "PE"],
         _ => &[],
     }
 }
@@ -827,20 +869,13 @@ pub fn pin_numbers(c: &Comp, linked: Option<Kind>) -> Vec<String> {
     let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     // Contact number prefix: "1" → 13-14, "2" → 23-24…; none → 3-4 / 1-2.
     let n = if c.num == NO_NUM { String::new() } else { (c.num as usize + 1).to_string() };
-    let tn = if c.num == NO_NUM { String::new() } else { (c.num as usize + 5).to_string() };
-    let timer = matches!(linked, Some(TimerOn) | Some(TimerOff));
-    let thermal = linked == Some(Thermal3);
+    // Timer and overload-relay contacts use the function digits 5-6 (NC), 7-8 (NO),
+    // 5-6-8 (changeover); the contact number in front is 9 by default (95-96, 97-98).
+    let special = matches!(linked, Some(TimerOn) | Some(TimerOff) | Some(Thermal3));
     match c.kind {
-        // Overload relay auxiliary contacts: 95-96 (NC), 97-98 (NO), 95-96-98 (changeover).
-        ContactNc if thermal => v(&["95", "96"]),
-        ContactNo if thermal => v(&["97", "98"]),
-        ContactCo if thermal => v(&["95", "96", "98"]),
-        ContactNo if timer => {
-            let p = if c.num == NO_NUM { String::new() } else { (c.num as usize + 6).to_string() };
-            vec![format!("{p}7"), format!("{p}8")]
-        }
-        ContactNc if timer => vec![format!("{tn}5"), format!("{tn}6")],
-        ContactCo if timer => vec![format!("{tn}5"), format!("{tn}6"), format!("{tn}8")],
+        ContactNc if special => vec![format!("{n}5"), format!("{n}6")],
+        ContactNo if special => vec![format!("{n}7"), format!("{n}8")],
+        ContactCo if special => vec![format!("{n}5"), format!("{n}6"), format!("{n}8")],
         ContactNo => vec![format!("{n}3"), format!("{n}4")],
         ContactNc => vec![format!("{n}1"), format!("{n}2")],
         ContactCo => vec![format!("{n}1"), format!("{n}2"), format!("{n}4")],
@@ -855,6 +890,8 @@ pub fn pin_numbers(c: &Comp, linked: Option<Kind>) -> Vec<String> {
         Rcd4 => v(&["1", "3", "5", "N", "2", "4", "6", "N"]),
         Breaker3 | MotorBreaker3 | Main3 | Thermal3 => v(&["1", "3", "5", "2", "4", "6"]),
         Motor1 => v(&["U1", "U2"]),
+        Rectifier => v(&["~", "~", "+", "−"]),
+        Brake => v(&["1", "2"]),
         _ => vec![],
     }
 }

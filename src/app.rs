@@ -32,8 +32,7 @@ pub enum ExportScope {
 
 /// An image / PDF export in progress: the view is set up, a screenshot taken and cropped.
 struct Export {
-    scope: ExportScope,
-    pdf: bool,
+    opts: export::ExportOpts,
     stage: u8,
     view: (Vec2, f32),
 }
@@ -122,6 +121,10 @@ pub struct App {
     /// Dark theme in effect this frame.
     dark: bool,
     export: Option<Export>,
+    export_opts: export::ExportOpts,
+    export_dialog: bool,
+    /// Export to run once the window is up (picture checks).
+    pending_export: Option<export::ExportOpts>,
     siren: crate::sound::Siren,
     /// Buzzer sound on/off.
     sound_on: bool,
@@ -169,9 +172,12 @@ impl App {
             cat_list_open: false,
             share_link: None,
             link_msg: String::new(),
-            theme_mode: ThemeMode::Auto,
+            theme_mode: ThemeMode::Light,
             dark: force_mobile,
             export: None,
+            export_opts: Default::default(),
+            export_dialog: false,
+            pending_export: None,
             siren: Default::default(),
             sound_on: true,
             dark_applied: None,
@@ -185,8 +191,16 @@ impl App {
             "share" => app.open_share(),
             "stardelta" => {
                 app.circ = examples::star_delta();
-                app.title = examples::list()[3].0.to_string();
+                app.title = examples::list()[6].0.to_string();
                 app.sim.start(&mut app.circ);
+            }
+            s if s.starts_with("ex") && s[2..].parse::<usize>().is_ok() => {
+                let n: usize = s[2..].parse().unwrap_or(1);
+                if let Some((name, f)) = examples::list().get(n.saturating_sub(1)) {
+                    app.circ = f();
+                    app.title = name.to_string();
+                    app.sim.start(&mut app.circ);
+                }
             }
             "protect" => {
                 app.circ = Circuit::default();
@@ -223,12 +237,30 @@ impl App {
                 c.page = 1;
                 app.circ = c;
             }
-            "export" => app.start_export(ExportScope::All, false),
-            "exportpdf" => app.start_export(ExportScope::All, true),
-            "exportsel" => {
-                app.sel = app.circ.comps.iter().filter(|c| c.pos.x < 30).map(|c| c.id).collect();
-                app.start_export(ExportScope::Selection, false);
+            // Export checks: SIMU_SHEET=export-<png|jpg|svg|pdf>[-grid|-transp][-sel].
+            s if s.starts_with("export-") => {
+                let mut o = export::ExportOpts::default();
+                o.format = if s.contains("jpg") {
+                    export::ExportFormat::Jpeg
+                } else if s.contains("svg") {
+                    export::ExportFormat::Svg
+                } else if s.contains("pdf") {
+                    export::ExportFormat::Pdf
+                } else {
+                    export::ExportFormat::Png
+                };
+                if s.contains("grid") {
+                    o.bg = export::ExportBg::Grid;
+                } else if s.contains("transp") {
+                    o.bg = export::ExportBg::Transparent;
+                }
+                if s.contains("sel") {
+                    app.sel = app.circ.comps.iter().filter(|c| c.pos.x < 30).map(|c| c.id).collect();
+                    o.scope = ExportScope::Selection;
+                }
+                app.pending_export = Some(o);
             }
+            "exportdialog" => app.open_export_dialog(false),
             "paste" => {
                 // Copy the coil, its holding contact and the start button, then paste:
                 // the pasted coil becomes KM2 and its contact follows KM2.
@@ -669,27 +701,20 @@ impl App {
                             self.open_share();
                         }
                         ui.separator();
-                        if ui.button(t("🖼 Exportar imagem (tudo)…", "🖼 Export image (all)…")).clicked() {
-                            self.start_export(ExportScope::All, false);
-                            ui.close();
-                        }
-                        let has_sel = !self.sel.is_empty() || !self.sel_w.is_empty();
-                        if ui
-                            .add_enabled(has_sel, egui::Button::new(t("🖼 Exportar imagem (seleção)…", "🖼 Export image (selection)…")))
-                            .clicked()
-                        {
-                            self.start_export(ExportScope::Selection, false);
-                            ui.close();
-                        }
-                        if ui.button(t("🖨 Imprimir / salvar em PDF…   Ctrl+P", "🖨 Print / save as PDF…   Ctrl+P")).clicked() {
-                            self.start_export(ExportScope::All, true);
+                        if ui.button(t("🖶 Exportar / imprimir…   Ctrl+P", "🖶 Export / print…   Ctrl+P")).clicked() {
+                            self.open_export_dialog(false);
                             ui.close();
                         }
                         ui.separator();
                         ui.menu_button(t("Exemplos", "Examples"), |ui| {
-                            for (name, f) in examples::list() {
-                                if ui.button(name).clicked() {
-                                    self.load_circuit(f(), name);
+                            for (group, items) in examples::groups() {
+                                ui.add_space(4.0);
+                                ui.label(RichText::new(group).strong().small().color(subtle(ui)));
+                                for (name, f) in items {
+                                    if ui.button(name).clicked() {
+                                        self.load_circuit(f(), name);
+                                        ui.close();
+                                    }
                                 }
                             }
                         });
@@ -702,10 +727,6 @@ impl App {
                         });
                         ui.separator();
                         ui.menu_button(t("📄 Página", "📄 Page"), |ui| self.page_menu(ui));
-                        ui.separator();
-                        if ui.button(t("Sair", "Quit")).clicked() {
-                            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
                     });
                     ui.menu_button(t("Editar", "Edit"), |ui| {
                         if ui.button(t("Desfazer   Ctrl+Z", "Undo   Ctrl+Z")).clicked() {
@@ -1125,7 +1146,7 @@ impl App {
                     if tb(ui, "⛶", t("Ajustar à folha", "Fit sheet"), true) {
                         self.fit();
                     }
-                    if tb(ui, "⊡", t("Ajustar aos componentes", "Fit to components"), true) {
+                    if tb(ui, "🔍", t("Ajustar aos componentes", "Fit to components"), true) {
                         self.fit_content();
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -1262,7 +1283,8 @@ impl App {
                                 }
                             }
                         });
-                    } else if !c.kind.is_terminal() {
+                    } else if !c.kind.is_terminal() && !c.kind.is_linked() {
+                        // Contacts take their tag from "Segue" (no separate tag field).
                         ui.horizontal(|ui| {
                             ui.label(t("✏ Identificação", "✏ Tag"));
                             let r = editable_field(ui, &mut c.tag, false);
@@ -1322,13 +1344,18 @@ impl App {
                     if c.kind.is_linked() {
                         ui.horizontal(|ui| {
                             ui.label(t("Segue", "Follows"));
+                            let shown = if c.tag.is_empty() { t("(nenhum)", "(none)").to_string() } else { c.tag.clone() };
                             egui::ComboBox::from_id_salt("link")
-                                .selected_text(c.tag.clone())
+                                .selected_text(shown)
                                 .width(ui.available_width().clamp(120.0, 200.0))
                                 .height(4.0 * 30.0 + 8.0)
                                 .show_ui(ui, |ui| {
                                     ui.set_min_width(220.0);
                                     ui.style_mut().spacing.button_padding.y = 6.0;
+                                    if ui.selectable_label(c.tag.is_empty(), t("(nenhum)", "(none)")).clicked() {
+                                        c.tag.clear();
+                                        changed = true;
+                                    }
                                     for (tg, k) in &tags {
                                         if c.kind == Kind::Main3 && *k != Kind::Coil {
                                             continue;
@@ -1337,6 +1364,14 @@ impl App {
                                         if ui.selectable_label(c.tag == *tg, label).clicked() {
                                             c.tag = tg.clone();
                                             changed = true;
+                                            // Usual numbering: 9 for timer / overload-relay contacts.
+                                            if c.kind.is_aux_contact() {
+                                                if matches!(k, Kind::TimerOn | Kind::TimerOff | Kind::Thermal3) {
+                                                    c.num = 8;
+                                                } else if c.num == 8 {
+                                                    c.num = 0;
+                                                }
+                                            }
                                         }
                                     }
                                 });
@@ -1942,7 +1977,7 @@ impl App {
         let exporting = self.export.is_some();
         let th = draw::Theme::get(self.dark && !exporting);
         if exporting {
-            painter.rect_filled(self.canvas, 0.0, Color32::WHITE);
+            self.paint_export_bg(painter, &th);
         } else if self.mobile {
             // Phones: endless grid plus the page frame.
             self.paint_dark_grid(painter, &th);
@@ -2049,7 +2084,7 @@ impl App {
         // While exporting: no selection marks or tool hints; a selection export
         // draws only the selected parts and the wires that go with them.
         let exporting = self.export.is_some();
-        let only_sel = matches!(&self.export, Some(e) if e.scope == ExportScope::Selection);
+        let only_sel = matches!(&self.export, Some(e) if e.opts.scope == ExportScope::Selection);
         let keep_w: HashSet<usize> = if only_sel {
             let pins: HashSet<P> =
                 self.circ.comps.iter().filter(|c| self.sel.contains(&c.id)).flat_map(|c| c.pins()).collect();
@@ -2344,7 +2379,7 @@ impl App {
             (copy, cut, paste, i.key_pressed(Key::V) && cmd, i.key_pressed(Key::D) && cmd)
         });
         if ctx.input(|i| i.key_pressed(Key::P) && i.modifiers.command) {
-            self.start_export(ExportScope::All, true);
+            self.open_export_dialog(true);
         }
         if !self.sim.running {
             if copy {
@@ -2548,6 +2583,11 @@ impl eframe::App for App {
             setup_style(ctx, self.dark, self.mobile);
             self.dark_applied = Some((self.dark, self.mobile));
         }
+        if self.frame == 5 {
+            if let Some(o) = self.pending_export.take() {
+                self.start_export(o, ctx);
+            }
+        }
         self.export_step(ctx);
         if self.mobile {
             self.mobile_bars(ctx);
@@ -2569,6 +2609,7 @@ impl eframe::App for App {
                 self.mobile_overlays(ctx);
             }
             self.share_windows(ctx);
+            self.export_dialog_ui(ctx);
             self.help_window(ctx);
         } else {
             ctx.request_repaint();
@@ -2679,7 +2720,11 @@ fn contact_num(ui: &mut egui::Ui, num: &mut u8) -> bool {
             egui::DragValue::new(&mut n)
                 .range(0..=9)
                 .custom_formatter(|v, _| if v < 0.5 { "–".to_string() } else { format!("{v:.0}") })
-                .custom_parser(|s| if s.trim() == "-" || s.trim() == "–" { Some(0.0) } else { s.trim().parse().ok() }),
+                // Empty box or "-" means no number.
+                .custom_parser(|s| {
+                    let s = s.trim();
+                    if s.is_empty() || s == "-" || s == "–" { Some(0.0) } else { s.parse().ok() }
+                }),
         );
         if r.changed() {
             *num = if n == 0 { crate::circuit::NO_NUM } else { (n - 1) as u8 };

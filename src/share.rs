@@ -10,7 +10,7 @@ use crate::circuit::{Circuit, Kind, P};
 pub const PUBLIC_URL: &str = "https://jorgewattes.github.io/simueletro/";
 
 /// Stable numbering of the parts inside links. Only ever append to this list.
-const KINDS: [Kind; 38] = [
+const KINDS: [Kind; 42] = [
     Kind::TermL1,
     Kind::TermL2,
     Kind::TermL3,
@@ -49,6 +49,10 @@ const KINDS: [Kind; 38] = [
     Kind::Motor1D,
     Kind::ContactCo,
     Kind::Text,
+    Kind::MotorDahlander,
+    Kind::Motor2W,
+    Kind::Rectifier,
+    Kind::Brake,
 ];
 
 fn kind_index(k: Kind) -> usize {

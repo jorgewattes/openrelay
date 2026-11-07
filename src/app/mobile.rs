@@ -247,16 +247,9 @@ impl App {
             self.open_share();
             self.sheet = Sheet::None;
         }
-        if item(ui, format!("🖼  {}", t("Exportar imagem (tudo)", "Export image (all)"))) {
-            self.start_export(ExportScope::All, false);
-        }
-        if !self.sel.is_empty() || !self.sel_w.is_empty() {
-            if item(ui, format!("🖼  {}", t("Exportar imagem (seleção)", "Export image (selection)"))) {
-                self.start_export(ExportScope::Selection, false);
-            }
-        }
-        if item(ui, format!("🖨  {}", t("Imprimir / salvar em PDF", "Print / save as PDF"))) {
-            self.start_export(ExportScope::All, true);
+        if item(ui, format!("🖶  {}", t("Exportar / imprimir…", "Export / print…"))) {
+            self.open_export_dialog(false);
+            self.sheet = Sheet::None;
         }
         if item(ui, format!("📄  {}", t("Novo circuito", "New circuit"))) {
             self.new_file();
@@ -273,10 +266,14 @@ impl App {
         }
         ui.add_space(6.0);
         ui.label(RichText::new(t("Exemplos", "Examples")).strong().color(text_col()));
-        for (name, f) in examples::list() {
-            if item(ui, format!("⚡  {name}")) {
-                self.load_circuit(f(), name);
-                self.sheet = Sheet::None;
+        for (group, items) in examples::groups() {
+            ui.add_space(4.0);
+            ui.label(RichText::new(group).small().color(muted()));
+            for (name, f) in items {
+                if item(ui, format!("⚡  {name}")) {
+                    self.load_circuit(f(), name);
+                    self.sheet = Sheet::None;
+                }
             }
         }
         ui.add_space(6.0);
@@ -311,7 +308,7 @@ impl App {
             self.sheet = Sheet::Props;
         }
         if ui
-            .add(egui::Button::new(format!("⊡  {}", t("Ajustar aos componentes", "Fit to components"))).min_size(full))
+            .add(egui::Button::new(format!("🔍  {}", t("Ajustar aos componentes", "Fit to components"))).min_size(full))
             .clicked()
         {
             self.fit_content();
@@ -403,7 +400,7 @@ impl App {
                                 Stroke::new(1.0_f32, panel_line()),
                             );
                             // Fit the view to the components.
-                            if zoom_btn(ui, "⊡") {
+                            if zoom_btn(ui, "🔍") {
                                 self.fit_content();
                             }
                         });

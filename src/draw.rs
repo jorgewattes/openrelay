@@ -351,38 +351,42 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
             }
         }
         ContactNo | ContactNc | ContactCo => {
-            let m = if c.kind == ContactCo {
-                // Changeover: common at the bottom, NC on the left, NO on the right.
-                d.line_c(0.0, 6.0, 0.0, 4.0, pc(0));
-                d.line_c(0.0, 0.0, 0.0, 2.0, pc(1));
-                d.line_c(0.0, 2.0, 0.9, 2.0, pc(1));
-                d.line_c(3.0, 0.0, 3.0, 2.4, pc(2));
-                d.line_c(3.0, 2.4, 2.0, 2.4, pc(2));
-                let tip = if cx.act { (2.05, 2.25) } else { (0.95, 1.85) };
-                d.line_c(0.0, 4.0, tip.0, tip.1, pc(0));
-                (tip.0 / 2.0, (4.0 + tip.1) / 2.0)
+            let co = c.kind == ContactCo;
+            let m = if co {
+                // Changeover: common on top (centred), NC bottom-left, NO bottom-right.
+                d.line_c(0.0, 0.0, 0.0, 2.0, pc(0));
+                d.line_c(-2.0, 6.0, -2.0, 4.2, pc(1));
+                d.line_c(-2.0, 4.2, -0.9, 4.2, pc(1));
+                d.line_c(2.0, 6.0, 2.0, 4.2, pc(2));
+                d.line_c(2.0, 4.2, 0.9, 4.2, pc(2));
+                let tip = if cx.act { (0.95, 4.1) } else { (-0.95, 4.1) };
+                d.line_c(0.0, 2.0, tip.0, tip.1, pc(0));
+                (tip.0 / 2.0, (2.0 + tip.1) / 2.0)
             } else {
                 let nc = c.kind == ContactNc;
                 let closed = if nc { !cx.act } else { cx.act };
                 contact(&d, 0.0, closed, nc, pc(0), pc(1))
             };
+            // Actuators sit further left on the changeover (its NC terminal is there).
+            let ax = if co { -1.0 } else { 0.0 };
             match cx.linked {
                 Some(TimerOn) | Some(TimerOff) => {
-                    d.dash(m.0, m.1, -1.9, 3.0);
+                    d.dash(m.0, m.1, -1.9 + ax, 3.0);
                     if cx.linked == Some(TimerOn) {
-                        d.arc_line(-2.5, 3.0, 0.6, -PI * 0.5, PI * 0.5);
+                        d.arc_line(-2.5 + ax, 3.0, 0.6, -PI * 0.5, PI * 0.5);
                     } else {
-                        d.arc_line(-1.9, 3.0, 0.6, PI * 0.5, PI * 1.5);
+                        d.arc_line(-1.9 + ax, 3.0, 0.6, PI * 0.5, PI * 1.5);
                     }
                 }
                 Some(Thermal3) => {
                     // Thermal (bimetal) actuator, clear of the tag on its left.
-                    d.dash(m.0, m.1, -1.8, 3.0);
-                    bimetal(&d, -3.4, -1.8, 3.0);
+                    d.dash(m.0, m.1, -1.8 + ax, 3.0);
+                    bimetal(&d, -3.4 + ax, -1.8 + ax, 3.0);
                 }
                 _ => {}
             }
-        }        Coil | TimerOn | TimerOff => {
+        }
+        Coil | TimerOn | TimerOff => {
             d.line_c(0.0, 0.0, 0.0, 2.0, pc(0));
             d.line_c(0.0, 4.0, 0.0, 6.0, pc(1));
             let fill = if cx.sim && cx.act { Some(if cx.dark { Color32::from_rgb(30, 120, 66) } else { Color32::from_rgb(140, 225, 160) }) } else { Some(cx.paper) };
@@ -458,7 +462,6 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
             d.circle(star.0, star.1, 0.22, Some(cx.ink));
             pe_lead(&d, pc(3), 7.6);
             for (i, &(x, y)) in tops.iter().enumerate() {
-                term_dot(&d, x, y, cx);
                 tlabel(&d, x, y - 0.15, ["U1", "V1", "W1"][i], 3.0, cx);
             }
             motor_name(&d, c, cx, 7.3, 9.8, "M3~");
@@ -486,7 +489,6 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
             for i in 0..6 {
                 let (px, _) = c.kind.pins()[i];
                 let (x, y) = if i < 3 { tops[i] } else { bots[(px as f32 / 3.0).round() as usize] };
-                term_dot(&d, x, y, cx);
                 let dy = if i < 3 { -0.15 } else { 0.15 };
                 tlabel(&d, x, y + dy, names[i], 3.0, cx);
             }
@@ -502,27 +504,28 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
             motor_name(&d, c, cx, 7.3, 10.0, label);
         }
         Motor12 => {
-            motor_box(&d, c, cx, -1.3, 1.0, 16.3, 11.0);
+            // Oval motor body: six half-windings (two per phase), every end brought out.
+            motor_oval(&d, c, cx, 7.5, 6.0, 9.4, 6.4);
             let names = ["U1", "V1", "W1", "U2", "V2", "W2", "U5", "V5", "W5", "U6", "V6", "W6"];
             for i in 0..12 {
                 let (px, py) = c.kind.pins()[i];
-                let (x, y) = (px as f32, if py == 0 { 2.2 } else { 9.8 });
+                let (x, y) = (px as f32, if py == 0 { 2.7 } else { 9.3 });
                 d.line_c(x, py as f32, x, y, pc(i));
             }
-            for (top, bot) in [(0, 3), (1, 4), (2, 5), (6, 9), (7, 10), (8, 11)] {
+            for top in [0, 1, 2, 6, 7, 8] {
                 let x = c.kind.pins()[top].0 as f32;
-                winding(&d, (x, 2.2), (x, 9.8), phase_col(top % 3 + if top >= 6 { 0 } else { 0 }, cx));
-                let _ = bot;
+                winding(&d, (x, 2.7), (x, 9.3), phase_col(top % 3, cx));
             }
             for i in 0..12 {
                 let (px, py) = c.kind.pins()[i];
-                let (x, y) = (px as f32, if py == 0 { 2.2 } else { 9.8 });
-                term_dot(&d, x, y, cx);
-                tlabel(&d, x, y + if py == 0 { -0.6 } else { 0.6 }, names[i], 14.9, cx);
+                let y = if py == 0 { 2.0 } else { 10.0 };
+                tlabel(&d, px as f32, y, names[i], 14.9, cx);
             }
+            d.text(7.5, 5.3, "M", 1.0, Align2::CENTER_CENTER, cx.ink);
+            d.text(7.5, 6.7, "3~", 0.8, Align2::CENTER_CENTER, cx.ink);
             let pe = pc(12);
             d.line_c(18.0, 0.0, 18.0, 6.0, pe);
-            d.line_c(18.0, 6.0, 16.3, 6.0, pe);
+            d.line_c(18.0, 6.0, 16.9, 6.0, pe);
             d.text(18.35, 1.0, "PE", 0.72, Align2::LEFT_CENTER, cx.num);
             let label = if cx.sim {
                 match c.st.conn {
@@ -559,8 +562,6 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
                 let aux = names[i].starts_with('Z');
                 let col = if aux { Color32::from_rgb(220, 50, 40) } else { Color32::from_rgb(40, 110, 230) };
                 winding(&d, (x, ya), (x, yb), col);
-                term_dot(&d, x, ya, cx);
-                term_dot(&d, x, yb, cx);
                 tlabel(&d, x, ya - 0.1, names[i], cxm, cx);
                 tlabel(&d, x, yb + 0.1, names[i + 1], cxm, cx);
                 i += 2;
@@ -575,6 +576,69 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
                 "M1~"
             };
             motor_name(&d, c, cx, cxm + r * 0.75, cym + r * 0.95, label);
+        }
+        MotorDahlander | Motor2W => {
+            motor_ring(&d, c, cx, 3.0, 5.5, 4.6);
+            let names = ["1U", "1V", "1W", "2U", "2V", "2W"];
+            let tops = [(0.0, 2.4), (3.0, 1.9), (6.0, 2.4)];
+            let bots = [(0.0, 8.6), (3.0, 9.1), (6.0, 8.6)];
+            for i in 0..3 {
+                let (x, ty) = tops[i];
+                let by = bots[i].1;
+                d.line_c(x, 0.0, x, ty, pc(i));
+                d.line_c(x, by, x, 11.0, pc(i + 3));
+                let col = phase_col(i, cx);
+                if c.kind == MotorDahlander {
+                    // One winding per phase with a centre tap (Δ/YY).
+                    winding(&d, (x, ty), (x, 5.5), col);
+                    winding(&d, (x, 5.5), (x, by), col);
+                    d.circle(x, 5.5, 0.14, Some(cx.ink));
+                } else {
+                    // Two independent star windings: low speed on top, high speed below.
+                    winding(&d, (x, ty), (3.0, 4.6), col);
+                    winding(&d, (x, by), (3.0, 6.6), col);
+                }
+                tlabel(&d, x, ty - 0.15, names[i], 3.0, cx);
+                tlabel(&d, x, by + 0.15, names[i + 3], 3.0, cx);
+            }
+            if c.kind == Motor2W {
+                d.circle(3.0, 4.6, 0.18, Some(cx.ink));
+                d.circle(3.0, 6.6, 0.18, Some(cx.ink));
+            }
+            pe_lead(&d, pc(6), 7.6);
+            let label = match (c.kind, cx.sim, c.st.conn) {
+                (_, true, 1) => t("M3~ lenta", "M3~ low"),
+                (_, true, 2) => t("M3~ rápida", "M3~ high"),
+                (MotorDahlander, _, _) => "M3~ Dahl.",
+                _ => t("M3~ 2 enr.", "M3~ 2 wnd."),
+            };
+            motor_name(&d, c, cx, 7.3, 10.0, label);
+        }
+        Rectifier => {
+            d.line_c(0.0, 0.0, 0.0, 1.2, pc(0));
+            d.line_c(3.0, 0.0, 3.0, 1.2, pc(1));
+            d.line_c(0.0, 4.8, 0.0, 6.0, pc(2));
+            d.line_c(3.0, 4.8, 3.0, 6.0, pc(3));
+            d.rect(-1.0, 1.2, 4.0, 4.8, Some(cx.paper));
+            // Diode mark.
+            d.poly(&[(0.9, 2.4), (0.9, 3.6), (1.9, 3.0)], true, Some(cx.ink));
+            d.line(1.95, 2.4, 1.95, 3.6);
+            d.line(0.4, 3.0, 2.6, 3.0);
+        }
+        Brake => {
+            d.line_c(0.0, 0.0, 0.0, 2.0, pc(0));
+            d.line_c(0.0, 4.0, 0.0, 6.0, pc(1));
+            let released = cx.sim && c.st.energized;
+            let fill = if released {
+                Some(if cx.dark { Color32::from_rgb(30, 120, 66) } else { Color32::from_rgb(140, 225, 160) })
+            } else {
+                Some(cx.paper)
+            };
+            d.rect(-1.4, 2.0, 1.4, 4.0, fill);
+            // Brake shoes: apart when released, closed when braking.
+            let gap = if released { 0.55 } else { 0.25 };
+            d.line(-gap, 2.35, -gap, 3.65);
+            d.line(gap, 2.35, gap, 3.65);
         }
         Text => {
             let h = c.text_size();
@@ -606,7 +670,7 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
         // Plain coil contacts have no actuator drawn on their left: keep the tag
         // close, so it doesn't land on a neighbouring button.
         let plain = c.kind.is_aux_contact() && !matches!(cx.linked, Some(TimerOn) | Some(TimerOff) | Some(Thermal3));
-        let x0 = if plain && c.rot == 0 { c.pos.x as f32 - 1.6 } else { x0 };
+        let x0 = if plain && c.rot == 0 { c.pos.x as f32 - if c.kind == ContactCo { 2.6 } else { 1.6 } } else { x0 };
         let s = xf.s;
         let origin = xf.o - egui::vec2(c.pos.x as f32 * s, c.pos.y as f32 * s);
         let text = format!("-{}", c.tag);
@@ -753,13 +817,6 @@ fn tlabel(d: &D, x: f32, y: f32, s: &str, centre: f32, cx: &DrawCtx) {
     }
 }
 
-/// Terminal of a motor winding: small ring.
-fn term_dot(d: &D, x: f32, y: f32, cx: &DrawCtx) {
-    let c = d.xf.p(x, y);
-    d.p.circle_filled(c, 0.24 * d.xf.s, cx.paper);
-    d.p.circle_stroke(c, 0.24 * d.xf.s, Stroke::new(d.w * 0.9, cx.ink));
-}
-
 /// Earth lead of a three-phase motor (pin at (9,0)) to the body edge at x_edge.
 fn pe_lead(d: &D, col: Color32, x_edge: f32) {
     d.line_c(9.0, 0.0, 9.0, 5.5, col);
@@ -785,13 +842,18 @@ fn motor_ring(d: &D, c: &Comp, cx: &DrawCtx, x: f32, y: f32, r: f32) {
     }
 }
 
-/// Rectangular body (12-terminal motor).
-fn motor_box(d: &D, c: &Comp, cx: &DrawCtx, x0: f32, y0: f32, x1: f32, y1: f32) {
-    let r = egui::Rect::from_two_pos(d.xf.p(x0, y0), d.xf.p(x1, y1));
-    d.p.rect_filled(r, 0.6 * d.xf.s, motor_fill(c, cx));
-    d.p.rect_stroke(r, 0.6 * d.xf.s, Stroke::new(d.w, cx.ink), egui::StrokeKind::Middle);
+/// Oval body (12-terminal motor) with the turning arrow while it runs.
+fn motor_oval(d: &D, c: &Comp, cx: &DrawCtx, x: f32, y: f32, rx: f32, ry: f32) {
+    let pts: Vec<Pos2> = (0..64)
+        .map(|i| {
+            let a = i as f32 / 64.0 * std::f32::consts::TAU;
+            d.xf.p(x + rx * a.cos(), y + ry * a.sin())
+        })
+        .collect();
+    d.p.add(Shape::convex_polygon(pts.clone(), motor_fill(c, cx), Stroke::NONE));
+    d.p.add(Shape::closed_line(pts, Stroke::new(d.w, cx.ink)));
     if cx.sim && c.st.motor != 0 {
-        spin(d, c, x1 + 1.2, y1 - 1.6, 0.9);
+        spin(d, c, x + rx + 1.2, y + ry - 0.8, 0.9);
     }
 }
 
