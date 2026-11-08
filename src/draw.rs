@@ -54,6 +54,8 @@ pub struct DrawCtx {
     pub tag_col: Color32,
     /// Dark theme (phone layout).
     pub dark: bool,
+    /// First supply terminal of a row: it carries the voltage label.
+    pub row_first: bool,
 }
 
 impl DrawCtx {
@@ -73,6 +75,7 @@ impl DrawCtx {
             num: t.num,
             tag_col: t.tag,
             dark,
+            row_first: true,
         }
     }
 }
@@ -254,17 +257,15 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
             d.text(0.0, -2.3, label, 1.1, Align2::CENTER_CENTER, cx.ink);
         }
         Supply3 | Supply5 => {
-            // One block of supply terminals side by side, framed together.
+            // One block of supply terminals side by side (no frame).
             let srcs = c.kind.sources();
-            let last = 3.0 * (srcs.len() as f32 - 1.0);
-            d.rect(-1.25, -3.25, last + 1.25, -0.5, Some(cx.paper));
             for (i, s) in srcs.iter().enumerate() {
                 let x = 3.0 * i as f32;
                 let col = pc(i);
                 d.line_c(x, -0.5, x, 0.0, col);
                 let live = cx.sim && cx.pin_col.get(i).copied().flatten().is_some();
-                d.circle(x, -1.2, 0.5, Some(if live { col } else { cx.paper }));
-                d.text(x, -2.45, s.name(), 1.0, Align2::CENTER_CENTER, cx.ink);
+                d.circle(x, -1.0, 0.5, Some(if live { col } else { cx.paper }));
+                d.text(x, -2.3, s.name(), 1.1, Align2::CENTER_CENTER, cx.ink);
             }
         }
         Fuse => {
@@ -718,7 +719,18 @@ fn voltage_marks(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
     // Rated voltage, small, under the tag (left of the part).
     if cx.numbers && c.rot % 2 == 0 {
         if let Some(b) = volt_badge(c) {
-            if !c.kind.is_terminal() {
+            if c.kind.is_terminal() {
+                // Supply: small, left of the first terminal of the row, beside its circle.
+                if cx.row_first {
+                    p.text(
+                        w(x0 - 0.2, c.pos.y as f32 - 1.1),
+                        Align2::RIGHT_CENTER,
+                        format!("{b}~"),
+                        FontId::proportional((0.85 * s).max(5.5)),
+                        cx.num,
+                    );
+                }
+            } else {
                 p.text(
                     w(x0 - 0.4, mid + 1.3),
                     Align2::RIGHT_CENTER,

@@ -232,6 +232,9 @@ impl App {
             }
             "symbols" => {
                 let mut c = Circuit::default();
+                c.add(Kind::Supply5, (60, 50).into(), 0, "");
+                c.add(Kind::Supply3, (84, 50).into(), 0, "");
+                c.add(Kind::TermL2, (104, 50).into(), 0, "");
                 c.add(Kind::Breaker1, (10, 8).into(), 0, "Q1");
                 c.add(Kind::Breaker2, (22, 8).into(), 0, "Q2");
                 c.add(Kind::Breaker3, (36, 8).into(), 0, "Q3");
@@ -1779,6 +1782,13 @@ impl App {
         let (now, two_fingers) = ui.input(|i| (i.time, i.multi_touch().map(|m| m.translation_delta)));
         let hovered = resp.hovered();
         self.mouse_world = if hovered { pos.map(|p| self.to_world(p)) } else { None };
+        // A finger dragging a selection box may not count as "hovering": keep
+        // following it so the box is drawn (same look as with the mouse).
+        if matches!(self.drag, Drag::Rubber { .. } | Drag::Move { .. } | Drag::WireFrom { .. }) {
+            if let Some(p) = pos {
+                self.mouse_world = Some(self.to_world(p));
+            }
+        }
 
         // Two fingers: pinch zooms and the pair pans; any one-finger gesture is dropped.
         if let Some(pan) = two_fingers {
@@ -2300,6 +2310,11 @@ impl App {
                 num: if selected { th_sel } else { th.num },
                 tag_col: if selected { th_sel } else { th.tag },
                 dark: th.dark,
+                // Phase terminals side by side (L1 L2 L3): only the first is labelled.
+                row_first: !(c.kind.is_phase()
+                    && self.circ.comps.iter().any(|o| {
+                        o.kind.is_phase() && o.rot == c.rot && o.pos == c.pos - crate::circuit::rot_i(3, 0, c.rot)
+                    })),
             };
             let xf = Xf { o: self.to_screen(c.pos.x as f32, c.pos.y as f32), s: z, r: c.rot };
             draw::draw_comp(painter, xf, c, &cx);
