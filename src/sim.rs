@@ -169,8 +169,8 @@ pub fn build_nets(circ: &Circuit, act: &HashMap<String, bool>) -> Nets {
     let mut short = HashSet::new();
     let mut short_pair = None;
     for c in &circ.comps {
-        if let Some(s) = c.kind.source() {
-            let r = uf.find(idx[&c.pin(0)]);
+        for (pi, &s) in c.kind.sources().iter().enumerate() {
+            let r = uf.find(idx[&c.pin(pi)]);
             match pot.get(&r).copied() {
                 None => {
                     pot.insert(r, s);
@@ -1288,6 +1288,43 @@ mod tests {
         hold(&mut c, &mut s, "S0", 2);
         assert!(!get(&c, Kind::Brake, "YB1").st.energized);
         assert!(s.fault.is_none(), "{:?}", s.fault);
+    }
+
+    #[test]
+    fn supply_blocks_feed_their_pins() {
+        // Three-phase block runs a motor.
+        let mut c = Circuit::default();
+        c.add(Kind::Supply3, (0, 0).into(), 0, "");
+        c.add(Kind::Motor3, (0, 4).into(), 0, "M1");
+        for x in [0, 3, 6] {
+            c.wire((x, 0), (x, 4));
+        }
+        let mut s = Sim::default();
+        s.start(&mut c);
+        assert_ne!(get(&c, Kind::Motor3, "M1").st.motor, 0);
+        // L1 L2 L3 N PE block: a lamp between L1 and N lights.
+        let mut c = Circuit::default();
+        c.add(Kind::Supply5, (0, 0).into(), 0, "");
+        c.add(Kind::Lamp, (20, 4).into(), 0, "H1");
+        c.wire((0, 0), (0, 2));
+        c.wire((0, 2), (20, 2));
+        c.wire((20, 2), (20, 4));
+        c.wire((9, 0), (9, 12));
+        c.wire((9, 12), (20, 12));
+        c.wire((20, 12), (20, 10));
+        s.start(&mut c);
+        assert!(get(&c, Kind::Lamp, "H1").st.energized);
+        assert!(s.fault.is_none(), "{:?}", s.fault);
+        // A phase terminal switched to L2 is L2.
+        let mut c = Circuit::default();
+        let l = c.add(Kind::TermL1, (0, 0).into(), 0, "");
+        c.comp_mut(l).unwrap().kind = Kind::TermL2;
+        c.add(Kind::Supply3, (10, 0).into(), 0, "");
+        c.wire((0, 0), (0, 2));
+        c.wire((0, 2), (13, 2));
+        c.wire((13, 2), (13, 0));
+        s.start(&mut c);
+        assert!(s.fault.is_none(), "L2 joined to L2 is not a short");
     }
 
     #[test]

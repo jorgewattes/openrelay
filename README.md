@@ -28,7 +28,7 @@ O OpenRelay é uma releitura moderna dos simuladores clássicos de comandos elé
 - Folha com grade, moldura, colunas e linhas, como numa folha de projeto: **A4, A3, A2 ou A1**, em **paisagem ou retrato** (Arquivo → Página; MAIS no celular). A opção **Acomodar diagrama na folha** escolhe o menor tamanho e a melhor orientação e centraliza o circuito; os exemplos já abrem assim, centralizados em A4.
 - **Texto livre** no diagrama (categoria Outros), com três tamanhos.
 - **Componentes organizados em categorias** (cada uma com sua cor na biblioteca):
-  - **Fontes** (verde): fases L1, L2, L3, neutro N, terra PE, +24 V e 0 V CC.
+  - **Fontes** (verde): **fase** (um só símbolo; L1, L2 ou L3 é escolhida nas propriedades), bloco de **3 fases L1 L2 L3**, bloco **L1 L2 L3 N PE**, neutro N, terra PE, +24 V e 0 V CC.
   - **Bobinas** (amarelo): bobina de contator, temporizador ao trabalho e ao repouso.
   - **Auxiliares** (azul): contatos auxiliares NA, NF e **comutador** (comum → NF/NA). Ligados a um relé térmico, os contatos usam **95-96** (NF), **97-98** (NA) e **95-96-98** (comutador).
   - **Comandos** (roxo): botão NA (liga), botão NF (desliga), chave seletora, emergência e fins de curso NA/NF.

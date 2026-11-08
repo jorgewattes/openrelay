@@ -159,6 +159,10 @@ pub enum Kind {
     Rectifier,
     /// Electromagnetic brake coil (DC), released while it has its rated voltage.
     Brake,
+    /// Three-phase supply block: L1 L2 L3 side by side.
+    Supply3,
+    /// Supply block: L1 L2 L3 N PE side by side.
+    Supply5,
 }
 
 /// Palette categories, in library order, each with its marker colour
@@ -175,7 +179,7 @@ type CategoryDef = (&'static str, &'static str, [u8; 3], &'static [Kind]);
 pub const CATEGORY_DEFS: [CategoryDef; 9] = {
     use Kind::*;
     [
-        ("Fontes", "Sources", [76, 175, 80], &[TermL1, TermL2, TermL3, TermN, TermPE, TermP24, Term0V]),
+        ("Fontes", "Sources", [76, 175, 80], &[TermL1, Supply3, Supply5, TermN, TermPE, TermP24, Term0V]),
         ("Bobinas", "Coils", [212, 194, 43], &[Coil, TimerOn, TimerOff]),
         ("Auxiliares", "Auxiliaries", [47, 134, 214], &[ContactNo, ContactNc, ContactCo]),
         ("Comandos", "Switches", [156, 72, 190], &[PushNo, PushNc, Switch, EStop, LimitNo, LimitNc]),
@@ -207,6 +211,8 @@ pub fn category_color(k: Kind) -> [u8; 3] {
 }
 
 const PINS_1: &[(i32, i32)] = &[(0, 0)];
+const PINS_S3: &[(i32, i32)] = &[(0, 0), (3, 0), (6, 0)];
+const PINS_S5: &[(i32, i32)] = &[(0, 0), (3, 0), (6, 0), (9, 0), (12, 0)];
 const PINS_2: &[(i32, i32)] = &[(0, 0), (0, 6)];
 const PINS_3P: &[(i32, i32)] = &[(0, 0), (3, 0), (6, 0), (0, 6), (3, 6), (6, 6)];
 const PINS_M3: &[(i32, i32)] = &[(0, 0), (3, 0), (6, 0), (9, 0)];
@@ -247,6 +253,8 @@ impl Kind {
         use Kind::*;
         match self {
             TermL1 | TermL2 | TermL3 | TermN | TermPE | TermP24 | Term0V => PINS_1,
+            Supply3 => PINS_S3,
+            Supply5 => PINS_S5,
             Breaker3 | MotorBreaker3 | Thermal3 | Main3 => PINS_3P,
             Motor3 => PINS_M3,
             Motor6 | MotorDahlander | Motor2W => PINS_M6,
@@ -315,6 +323,8 @@ impl Kind {
         use Kind::*;
         match self {
             TermL1 | TermL2 | TermL3 | TermN | TermPE | TermP24 | Term0V => (-1.2, -3.2, 1.2, 0.3),
+            Supply3 => (-1.4, -3.4, 7.4, 0.3),
+            Supply5 => (-1.4, -3.4, 13.4, 0.3),
             Breaker3 => (-5.0, 0.0, 7.0, 6.0),
             MotorBreaker3 => (-5.6, 0.0, 7.8, 6.0),
             Thermal3 | Main3 => (-1.5, 0.0, 7.5, 6.0),
@@ -353,8 +363,39 @@ impl Kind {
         }
     }
 
+    /// Source potential of each pin (terminals and supply blocks).
+    pub fn sources(self) -> &'static [Pot] {
+        use Kind::*;
+        match self {
+            TermL1 => &[Pot::L1],
+            TermL2 => &[Pot::L2],
+            TermL3 => &[Pot::L3],
+            TermN => &[Pot::N],
+            TermPE => &[Pot::PE],
+            TermP24 => &[Pot::P24],
+            Term0V => &[Pot::M0],
+            Supply3 => &[Pot::L1, Pot::L2, Pot::L3],
+            Supply5 => &[Pot::L1, Pot::L2, Pot::L3, Pot::N, Pot::PE],
+            _ => &[],
+        }
+    }
+
     pub fn is_terminal(self) -> bool {
-        self.source().is_some()
+        !self.sources().is_empty()
+    }
+
+    /// One phase terminal (L1, L2 or L3, chosen in the properties).
+    pub fn is_phase(self) -> bool {
+        matches!(self, Kind::TermL1 | Kind::TermL2 | Kind::TermL3)
+    }
+
+    /// Name in the parts library (the single phase terminal covers L1/L2/L3).
+    pub fn lib_name(self) -> &'static str {
+        if self.is_phase() {
+            t("Fase (L1 / L2 / L3)", "Phase (L1 / L2 / L3)")
+        } else {
+            self.name()
+        }
     }
 
     /// Contacts and power contacts follow another device by its tag.
@@ -439,6 +480,8 @@ impl Kind {
             Motor2W => t("Motor de dois enrolamentos – 2 velocidades", "Two-winding motor – 2 speeds"),
             Rectifier => t("Módulo retificador do freio", "Brake rectifier module"),
             Brake => t("Freio eletromagnético (bobina CC)", "Electromagnetic brake (DC coil)"),
+            Supply3 => t("3 fases L1 L2 L3", "3 phases L1 L2 L3"),
+            Supply5 => t("L1 L2 L3 N PE", "L1 L2 L3 N PE"),
         }
     }
 }
@@ -554,7 +597,7 @@ fn cur_txt(c: Cur) -> &'static str {
 pub fn volt_choices(k: Kind) -> Vec<String> {
     use Kind::*;
     match k {
-        TermL1 | TermL2 | TermL3 => AC_SYSTEMS
+        TermL1 | TermL2 | TermL3 | Supply3 | Supply5 => AC_SYSTEMS
             .iter()
             .map(|(f, l)| format!("{f:.0} V / {l:.0} V CA ({})", t("fase/linha", "phase/line")))
             .collect(),
@@ -589,7 +632,7 @@ pub fn volt_choices(k: Kind) -> Vec<String> {
 pub fn volt_label(k: Kind) -> &'static str {
     use Kind::*;
     match k {
-        TermL1 | TermL2 | TermL3 => t("Sistema", "System"),
+        TermL1 | TermL2 | TermL3 | Supply3 | Supply5 => t("Sistema", "System"),
         TermP24 => t("Tensão", "Voltage"),
         Rectifier => t("Tipo", "Type"),
         _ => t("Tensão nominal", "Rated voltage"),
@@ -619,7 +662,7 @@ pub fn volt_badge(c: &Comp) -> Option<String> {
     use Kind::*;
     let i = c.volt as usize;
     match c.kind {
-        TermL1 | TermL2 | TermL3 => AC_SYSTEMS.get(i).map(|(f, l)| format!("{f:.0}/{l:.0}V")),
+        TermL1 | TermL2 | TermL3 | Supply3 | Supply5 => AC_SYSTEMS.get(i).map(|(f, l)| format!("{f:.0}/{l:.0}V")),
         Lamp | Buzzer | Coil | TimerOn | TimerOff | Motor1 | Motor3 | Motor1S | MotorDahlander | Motor2W | Brake => nominal(c).map(|(k, v)| {
             format!("{v:.0}V{}", if k == Cur::Ac { "~" } else { "=" })
         }),

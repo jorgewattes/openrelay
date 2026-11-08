@@ -745,5 +745,5 @@ fn lib_tile(ui: &mut egui::Ui, kind: Kind, w: f32, active: bool) -> bool {
         [Pos2::new(rect.left() + 2.0, rect.bottom() - 3.0), Pos2::new(rect.right() - 2.0, rect.bottom() - 3.0)],
         Stroke::new(3.0_f32, Color32::from_rgb(r, g, b)),
     );
-    resp.on_hover_text(kind.name()).clicked()
+    resp.on_hover_text(kind.lib_name()).clicked()
 }

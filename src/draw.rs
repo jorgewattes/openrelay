@@ -253,6 +253,20 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
             };
             d.text(0.0, -2.3, label, 1.1, Align2::CENTER_CENTER, cx.ink);
         }
+        Supply3 | Supply5 => {
+            // One block of supply terminals side by side, framed together.
+            let srcs = c.kind.sources();
+            let last = 3.0 * (srcs.len() as f32 - 1.0);
+            d.rect(-1.25, -3.25, last + 1.25, -0.5, Some(cx.paper));
+            for (i, s) in srcs.iter().enumerate() {
+                let x = 3.0 * i as f32;
+                let col = pc(i);
+                d.line_c(x, -0.5, x, 0.0, col);
+                let live = cx.sim && cx.pin_col.get(i).copied().flatten().is_some();
+                d.circle(x, -1.2, 0.5, Some(if live { col } else { cx.paper }));
+                d.text(x, -2.45, s.name(), 1.0, Align2::CENTER_CENTER, cx.ink);
+            }
+        }
         Fuse => {
             d.line_c(0.0, 0.0, 0.0, 1.4, pc(0));
             d.line_c(0.0, 4.6, 0.0, 6.0, pc(1));

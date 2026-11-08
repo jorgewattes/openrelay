@@ -1355,6 +1355,18 @@ impl App {
                             .color(subtle(ui)),
                         );
                     }
+                    // One phase terminal: pick which phase it is.
+                    if c.kind.is_phase() {
+                        ui.label(t("Fase", "Phase"));
+                        ui.horizontal(|ui| {
+                            for (k, name) in [(Kind::TermL1, "L1"), (Kind::TermL2, "L2"), (Kind::TermL3, "L3")] {
+                                if ui.selectable_label(c.kind == k, RichText::new(name).strong()).clicked() && c.kind != k {
+                                    c.kind = k;
+                                    changed = true;
+                                }
+                            }
+                        });
+                    }
                     // Voltage: only the tabulated values, picked from a list.
                     let choices = crate::circuit::volt_choices(c.kind);
                     if !choices.is_empty() {
@@ -2885,11 +2897,11 @@ fn palette_item(ui: &mut egui::Ui, kind: Kind, active: bool) -> bool {
     p.text(
         Pos2::new(icon.right() + 8.0, rect.center().y),
         Align2::LEFT_CENTER,
-        kind.name(),
+        kind.lib_name(),
         FontId::proportional(13.0),
         if ui.is_enabled() { ui.visuals().text_color() } else { Color32::GRAY },
     );
-    resp.on_hover_text(kind.name()).clicked()
+    resp.on_hover_text(kind.lib_name()).clicked()
 }
 
 /// Draw a part's symbol centred in `icon`.
