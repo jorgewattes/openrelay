@@ -10,39 +10,39 @@ pub fn groups() -> Vec<(&'static str, Vec<Ex>)> {
         (
             t("Motores trifásicos", "Three-phase motors"),
             vec![
-                (t("1. Partida direta – motor de 3 terminais (estrela interna)", "1. Direct start – 3-terminal motor (internal star)"), direct_start as fn() -> Circuit),
-                (t("2. Partida direta – motor de 6 terminais em estrela (Y)", "2. Direct start – 6-terminal motor in star (Y)"), direct_star6),
-                (t("3. Partida direta – motor de 6 terminais em triângulo (Δ)", "3. Direct start – 6-terminal motor in delta (Δ)"), direct_delta6),
-                (t("4. Reversão – intertravamento por contatos auxiliares", "4. Reversing – interlock by auxiliary contacts"), reversing),
-                (t("5. Reversão – intertravamento duplo (botões e contatos)", "5. Reversing – double interlock (buttons and contacts)"), reversing_double),
-                (t("6. Partida sequencial temporizada de dois motores", "6. Timed sequential start of two motors"), cascade),
-                (t("7. Partida estrela-triângulo temporizada", "7. Timed star-delta start"), star_delta),
+                (t("1. Partida direta – motor de 3 terminais (estrela interna)", "1. Direct start – 3-terminal motor (internal star)"), ex::direct_start as fn() -> Circuit),
+                (t("2. Partida direta – motor de 6 terminais em estrela (Y)", "2. Direct start – 6-terminal motor in star (Y)"), ex::direct_star6),
+                (t("3. Partida direta – motor de 6 terminais em triângulo (Δ)", "3. Direct start – 6-terminal motor in delta (Δ)"), ex::direct_delta6),
+                (t("4. Reversão – intertravamento por contatos auxiliares", "4. Reversing – interlock by auxiliary contacts"), ex::reversing),
+                (t("5. Reversão – intertravamento duplo (botões e contatos)", "5. Reversing – double interlock (buttons and contacts)"), ex::reversing_double),
+                (t("6. Partida sequencial temporizada de dois motores", "6. Timed sequential start of two motors"), ex::cascade),
+                (t("7. Partida estrela-triângulo temporizada", "7. Timed star-delta start"), ex::star_delta),
             ],
         ),
         (
             t("Motores monofásicos", "Single-phase motors"),
             vec![
-                (t("8. Partida direta – monofásico com bobina auxiliar", "8. Direct start – single-phase with start winding"), single_direct as fn() -> Circuit),
-                (t("9. Reversão – monofásico com bobina auxiliar", "9. Reversing – single-phase with start winding"), single_reversing),
+                (t("8. Partida direta – monofásico com bobina auxiliar", "8. Direct start – single-phase with start winding"), ex::single_direct as fn() -> Circuit),
+                (t("9. Reversão – monofásico com bobina auxiliar", "9. Reversing – single-phase with start winding"), ex::single_reversing),
             ],
         ),
         (
             t("Motores especiais", "Special motors"),
             vec![
-                (t("10. Motor Dahlander – duas velocidades (manual)", "10. Dahlander motor – two speeds (manual)"), dahlander as fn() -> Circuit),
-                (t("11. Motor de 12 terminais – ΔΔ paralelo (220 V)", "11. 12-terminal motor – ΔΔ parallel (220 V)"), m12_dd),
-                (t("12. Motor de 12 terminais – YY paralelo (380 V)", "12. 12-terminal motor – YY parallel (380 V)"), m12_yy),
-                (t("13. Motor de 12 terminais – Δ série (440 V)", "13. 12-terminal motor – Δ series (440 V)"), m12_d),
-                (t("14. Motor de 12 terminais – Y série (760 V)", "14. 12-terminal motor – Y series (760 V)"), m12_y),
-                (t("15. Duas velocidades – motor de dois enrolamentos (manual)", "15. Two speeds – two-winding motor (manual)"), two_winding),
-                (t("16. Motor com freio eletromagnético (retificador)", "16. Motor with electromagnetic brake (rectifier)"), brake_motor),
+                (t("10. Motor Dahlander – duas velocidades (manual)", "10. Dahlander motor – two speeds (manual)"), ex::dahlander as fn() -> Circuit),
+                (t("11. Motor de 12 terminais – ΔΔ paralelo (220 V)", "11. 12-terminal motor – ΔΔ parallel (220 V)"), ex::m12_dd),
+                (t("12. Motor de 12 terminais – YY paralelo (380 V)", "12. 12-terminal motor – YY parallel (380 V)"), ex::m12_yy),
+                (t("13. Motor de 12 terminais – Δ série (440 V)", "13. 12-terminal motor – Δ series (440 V)"), ex::m12_d),
+                (t("14. Motor de 12 terminais – Y série (760 V)", "14. 12-terminal motor – Y series (760 V)"), ex::m12_y),
+                (t("15. Duas velocidades – motor de dois enrolamentos (manual)", "15. Two speeds – two-winding motor (manual)"), ex::two_winding),
+                (t("16. Motor com freio eletromagnético (retificador)", "16. Motor with electromagnetic brake (rectifier)"), ex::brake_motor),
             ],
         ),
         (
             t("Outros", "Others"),
             vec![
-                (t("Lâmpada temporizada", "Timed lamp"), timed_lamp as fn() -> Circuit),
-                (t("Tensões: motor Y/Δ e lâmpadas", "Voltages: Y/Δ motor and lamps"), voltages),
+                (t("Lâmpada temporizada", "Timed lamp"), ex::timed_lamp as fn() -> Circuit),
+                (t("Tensões: motor Y/Δ e lâmpadas", "Voltages: Y/Δ motor and lamps"), ex::voltages),
             ],
         ),
     ]
@@ -172,19 +172,19 @@ fn reversing_double() -> Circuit {
         path(&mut c, &[(x + 6, 22), (x + 6, 24)]);
         c.add(ContactNo, (x + 6, 24).into(), 0, own);
         path(&mut c, &[(x + 6, 30), (x + 6, 32), (x, 32)]);
-        c.wire((x, 30), (x, 34));
+        c.wire((x, 30), (x, 33));
         // NC contact of the opposite button (same button, second contact).
-        let nc = c.add(PushNc, (x, 34).into(), 0, opp);
+        let nc = c.add(PushNc, (x, 33).into(), 0, opp);
         c.comp_mut(nc).unwrap().num = 1;
-        c.wire((x, 40), (x, 42));
-        c.add(ContactNc, (x, 42).into(), 0, other);
-        c.wire((x, 48), (x, 50));
-        c.add(Coil, (x, 50).into(), 0, own);
-        c.wire((x, 56), (x, 60));
+        c.wire((x, 39), (x, 41));
+        c.add(ContactNc, (x, 41).into(), 0, other);
+        c.wire((x, 47), (x, 49));
+        c.add(Coil, (x, 49).into(), 0, own);
+        c.wire((x, 55), (x, 57));
     }
-    c.wire((45, 60), (62, 60));
-    c.wire((45, 60), (45, 63));
-    c.add(TermN, (45, 63).into(), 2, "");
+    c.wire((45, 57), (62, 57));
+    c.wire((45, 57), (45, 60));
+    c.add(TermN, (45, 60).into(), 2, "");
     fit_left(&mut c);
     c
 }
@@ -264,6 +264,14 @@ fn single_reversing() -> Circuit {
     let mut c = reversing();
     c.comps.retain(|k| k.pos.x >= 40);
     c.wires.retain(|w| w.a.x >= 40 && w.b.x >= 40);
+    // Control part level with the power supply (L1 at the top, row 4).
+    for k in c.comps.iter_mut() {
+        k.pos.y -= 2;
+    }
+    for w in c.wires.iter_mut() {
+        w.a.y -= 2;
+        w.b.y -= 2;
+    }
     c.add(TermL1, (8, 4).into(), 0, "");
     c.add(TermN, (11, 4).into(), 0, "");
     c.add(Breaker2, (8, 7).into(), 0, "Q1");
@@ -741,22 +749,22 @@ pub fn star_delta() -> Circuit {
     c.wire((28, 16), (28, 19));
     // Crossed-winding motor: bottom terminals W2 U2 V2 sit under U1 V1 W1, so the
     // delta links go straight down: L1→W2 (x 6), L2→U2 (x 9), L3→V2 (x 12).
-    c.wire((28, 25), (28, 46));
-    c.wire((28, 46), (12, 46));
-    c.wire((12, 46), (12, 41));
-    c.wire((25, 25), (25, 48));
-    c.wire((25, 48), (9, 48));
-    c.wire((9, 48), (9, 41));
-    c.wire((22, 25), (22, 50));
-    c.wire((22, 50), (6, 50));
-    c.wire((6, 50), (6, 41));
+    c.wire((28, 25), (28, 43));
+    c.wire((28, 43), (12, 43));
+    c.wire((12, 43), (12, 41));
+    c.wire((25, 25), (25, 44));
+    c.wire((25, 44), (9, 44));
+    c.wire((9, 44), (9, 41));
+    c.wire((22, 25), (22, 45));
+    c.wire((22, 45), (6, 45));
+    c.wire((6, 45), (6, 41));
     // Star contactor KM2 joins U2, V2 and W2.
-    c.add(Main3, (6, 53).into(), 0, "KM2");
-    c.wire((6, 50), (6, 53));
-    c.wire((9, 48), (9, 53));
-    c.wire((12, 46), (12, 53));
-    c.wire((6, 59), (9, 59));
-    c.wire((9, 59), (12, 59));
+    c.add(Main3, (6, 47).into(), 0, "KM2");
+    c.wire((6, 45), (6, 47));
+    c.wire((9, 44), (9, 47));
+    c.wire((12, 43), (12, 47));
+    c.wire((6, 53), (9, 53));
+    c.wire((9, 53), (12, 53));
 
     // ---- Control circuit (220 V) ----
     c.add(TermL1, (40, 4).into(), 0, "");
@@ -777,32 +785,30 @@ pub fn star_delta() -> Circuit {
     // KM1 and KT1 coils.
     c.wire((40, 33), (40, 35));
     c.add(Coil, (40, 35).into(), 0, "KM1");
-    c.wire((40, 41), (40, 62));
+    c.wire((40, 41), (40, 59));
     c.wire((52, 33), (52, 35));
     let kt = c.add(TimerOn, (52, 35).into(), 0, "KT1");
     c.comp_mut(kt).unwrap().preset = 5.0;
-    c.wire((52, 41), (52, 62));
+    c.wire((52, 41), (52, 59));
     // Star: KT1 (timed opening) → KM3 NC interlock → KM2 coil.
     c.wire((61, 33), (61, 35));
-    let a = c.add(ContactNc, (61, 35).into(), 0, "KT1");
-    let _ = a;
-    c.wire((61, 41), (61, 44));
-    c.add(ContactNc, (61, 44).into(), 0, "KM3");
-    c.wire((61, 50), (61, 53));
-    c.add(Coil, (61, 53).into(), 0, "KM2");
-    c.wire((61, 59), (61, 62));
+    c.add(ContactNc, (61, 35).into(), 0, "KT1");
+    c.wire((61, 41), (61, 43));
+    c.add(ContactNc, (61, 43).into(), 0, "KM3");
+    c.wire((61, 49), (61, 51));
+    c.add(Coil, (61, 51).into(), 0, "KM2");
+    c.wire((61, 57), (61, 59));
     // Delta: KT1 (timed closing) → KM2 NC interlock → KM3 coil.
     c.wire((72, 33), (72, 35));
-    let b = c.add(ContactNo, (72, 35).into(), 0, "KT1");
-    let _ = b;
-    c.wire((72, 41), (72, 44));
-    c.add(ContactNc, (72, 44).into(), 0, "KM2");
-    c.wire((72, 50), (72, 53));
-    c.add(Coil, (72, 53).into(), 0, "KM3");
-    c.wire((72, 59), (72, 62));
-    c.wire((40, 62), (72, 62));
-    c.wire((40, 62), (40, 64));
-    c.add(TermN, (40, 64).into(), 2, "");
+    c.add(ContactNo, (72, 35).into(), 0, "KT1");
+    c.wire((72, 41), (72, 43));
+    c.add(ContactNc, (72, 43).into(), 0, "KM2");
+    c.wire((72, 49), (72, 51));
+    c.add(Coil, (72, 51).into(), 0, "KM3");
+    c.wire((72, 57), (72, 59));
+    c.wire((40, 59), (72, 59));
+    c.wire((40, 59), (40, 60));
+    c.add(TermN, (40, 60).into(), 2, "");
     shift_left_part(&mut c, 5);
     shift_down(&mut c, 3);
     c
@@ -818,12 +824,12 @@ pub fn corrections() -> Vec<(&'static str, &'static str, fn() -> Circuit)> {
                 "apertar S2 liga o motor e ele continua ligado ao soltar; S1 desliga.",
                 "pressing S2 starts the motor and it keeps running when released; S1 stops it.",
             ),
-            fault_seal as fn() -> Circuit,
+            ex::fault_seal as fn() -> Circuit,
         ),
         (
             t("Correção 2 – Partida direta", "Correction 2 – Direct start"),
             t("com KM1 ligado, o motor M1 deve girar.", "with KM1 on, motor M1 must turn."),
-            fault_main as fn() -> Circuit,
+            ex::fault_main as fn() -> Circuit,
         ),
         (
             t("Correção 3 – Reversão", "Correction 3 – Reversing"),
@@ -831,7 +837,7 @@ pub fn corrections() -> Vec<(&'static str, &'static str, fn() -> Circuit)> {
                 "S1 gira o motor num sentido e S2 no sentido contrário.",
                 "S1 turns the motor one way and S2 the other way.",
             ),
-            fault_reverse as fn() -> Circuit,
+            ex::fault_reverse as fn() -> Circuit,
         ),
         (
             t("Correção 4 – Lâmpada temporizada", "Correction 4 – Timed lamp"),
@@ -839,7 +845,7 @@ pub fn corrections() -> Vec<(&'static str, &'static str, fn() -> Circuit)> {
                 "a lâmpada H1 acende 5 s depois de apertar S1.",
                 "lamp H1 lights 5 s after pressing S1.",
             ),
-            fault_timer as fn() -> Circuit,
+            ex::fault_timer as fn() -> Circuit,
         ),
         (
             t("Correção 5 – Estrela-triângulo", "Correction 5 – Star-delta"),
@@ -847,7 +853,7 @@ pub fn corrections() -> Vec<(&'static str, &'static str, fn() -> Circuit)> {
                 "o motor parte em estrela (KM2) e após 5 s passa para triângulo (KM3).",
                 "the motor starts in star (KM2) and after 5 s changes to delta (KM3).",
             ),
-            fault_star_delta as fn() -> Circuit,
+            ex::fault_star_delta as fn() -> Circuit,
         ),
     ]
 }
@@ -909,4 +915,42 @@ fn fault_star_delta() -> Circuit {
         k.kind = if k.kind == Kind::ContactNo { ContactNc } else { ContactNo };
     }
     c
+}
+/// What the menus open: each example centred on the best-fitting page.
+macro_rules! fitted {
+    ($($f:ident),* $(,)?) => {
+        mod ex {
+            use crate::circuit::Circuit;
+            $(
+                pub fn $f() -> Circuit {
+                    let mut c = super::$f();
+                    c.fit_page();
+                    c
+                }
+            )*
+        }
+    };
+}
+
+fitted!(
+    direct_start, direct_star6, direct_delta6, reversing, reversing_double, cascade, star_delta,
+    single_direct, single_reversing, dahlander, m12_dd, m12_yy, m12_d, m12_y, two_winding, brake_motor,
+    timed_lamp, voltages, fault_seal, fault_main, fault_reverse, fault_timer, fault_star_delta,
+);
+
+#[cfg(test)]
+mod tests {
+    /// Every example opens on an A4 sheet, centred inside the frame.
+    #[test]
+    fn examples_fit_a4_and_are_centred() {
+        for (name, f) in super::list() {
+            let c = f();
+            assert_eq!(c.page, 0, "{name}");
+            let (x0, y0, x1, y1) = c.drawing_box().unwrap();
+            let (sw, sh) = c.sheet();
+            assert!(x0 >= 4.0 && y0 >= 4.0 && x1 <= sw - 2.0 && y1 <= sh - 2.0, "{name}: {:?}", (x0, y0, x1, y1));
+            let (cx, cy) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+            assert!((cx - (sw + 2.0) / 2.0).abs() <= 0.6 && (cy - (sh + 2.0) / 2.0).abs() <= 0.6, "{name}");
+        }
+    }
 }

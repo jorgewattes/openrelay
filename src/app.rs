@@ -59,6 +59,20 @@ enum Drag {
     Pan,
     /// Dragging a new wire out of a terminal.
     WireFrom { start: P },
+    /// Phone: finger down, not yet a tap, drag or long press.
+    Pending { start: Pos2, t0: f64, target: Hit },
+    /// Phone: long press done; dragging now moves the selection.
+    Hold { start: Pos2 },
+}
+
+/// What a finger landed on (phone gestures).
+#[derive(Clone, Copy)]
+enum Hit {
+    Comp(u32),
+    Wire(usize),
+    /// A terminal, and the component it belongs to.
+    Pin(P, Option<u32>),
+    Empty,
 }
 
 mod export;
@@ -134,13 +148,15 @@ pub struct App {
     clip: Option<Circuit>,
     /// Pastes since the last copy (shifts each paste a little further).
     paste_n: i32,
+    /// Phone multi-selection mode (entered with a long press).
+    multi: bool,
 }
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, shot: Option<PathBuf>, force_mobile: bool) -> Self {
         setup_style(&cc.egui_ctx, force_mobile, force_mobile);
         let mut app = App {
-            circ: examples::direct_start(),
+            circ: (examples::list()[0].1)(),
             sim: Sim::default(),
             tool: Tool::Select,
             place_rot: 0,
@@ -183,6 +199,7 @@ impl App {
             dark_applied: None,
             clip: None,
             paste_n: 0,
+            multi: false,
         };
         // Preview helper for pictures: SIMU_SHEET=library|categories|selected.
         let preview = std::env::var("SIMU_SHEET").unwrap_or_default();
@@ -190,7 +207,7 @@ impl App {
             "library" => app.lib_open = true,
             "share" => app.open_share(),
             "stardelta" => {
-                app.circ = examples::star_delta();
+                app.circ = (examples::list()[6].1)();
                 app.title = examples::list()[6].0.to_string();
                 app.sim.start(&mut app.circ);
             }
@@ -276,14 +293,14 @@ impl App {
                 app.paste(None);
             }
             "volts" => {
-                app.circ = examples::voltages();
+                app.circ = (examples::list()[17].1)();
                 app.sim.start(&mut app.circ);
                 if let Some(s) = app.circ.comps.iter_mut().find(|c| c.kind == Kind::Switch) {
                     s.st.on = true;
                 }
             }
             "props" => {
-                app.circ = examples::voltages();
+                app.circ = (examples::list()[17].1)();
                 if let Some(c) = app.circ.comps.iter().find(|c| c.kind.is_motor6()) {
                     app.sel.insert(c.id);
                 }
@@ -396,6 +413,31 @@ impl App {
             ui.radio_value(&mut portrait, false, t("Paisagem", "Landscape"));
             ui.radio_value(&mut portrait, true, t("Retrato", "Portrait"));
         });
+        ui.add_space(4.0);
+        if ui
+            .button(format!("⊡  {}", t("Acomodar diagrama na folha", "Fit drawing to the sheet")))
+            .on_hover_text(t(
+                "Escolhe o menor tamanho e a melhor orientação de folha e centraliza o circuito.",
+                "Picks the smallest sheet size and best orientation and centres the circuit.",
+            ))
+            .clicked()
+        {
+            if self.sim.running {
+                self.sim.stop(&mut self.circ);
+            }
+            self.push_undo();
+            self.circ.fit_page();
+            self.fit();
+            let (w, h) = self.circ.sheet();
+            let orient = if self.circ.portrait { t("retrato", "portrait") } else { t("paisagem", "landscape") };
+            self.status = format!(
+                "{} {} {orient} – {w:.0}×{h:.0}",
+                t("Diagrama centralizado na folha", "Drawing centred on sheet"),
+                crate::circuit::PAGES[self.circ.page as usize].0
+            );
+            ui.close();
+            return;
+        }
         if page != self.circ.page || portrait != self.circ.portrait {
             self.push_undo();
             self.circ.page = page;
@@ -592,6 +634,7 @@ impl App {
         } else {
             self.set_tool(Tool::Select);
             self.clear_sel();
+            self.multi = false;
             self.sim.start(&mut self.circ);
             self.status = t(
                 "Simulação em curso: clique nos botões, chaves e disjuntores.",
@@ -1715,8 +1758,26 @@ impl App {
                     i.pointer.button_double_clicked(egui::PointerButton::Primary),
                 )
             });
+        let (now, two_fingers) = ui.input(|i| (i.time, i.multi_touch().map(|m| m.translation_delta)));
         let hovered = resp.hovered();
         self.mouse_world = if hovered { pos.map(|p| self.to_world(p)) } else { None };
+
+        // Two fingers: pinch zooms and the pair pans; any one-finger gesture is dropped.
+        if let Some(pan) = two_fingers {
+            if !matches!(self.drag, Drag::None) {
+                if matches!(self.drag, Drag::Move { pushed: true, .. }) {
+                    self.cleanup_wires();
+                }
+                self.drag = Drag::None;
+            }
+            self.off += pan;
+            if zoom_d != 1.0 {
+                if let Some(p) = pos {
+                    self.zoom_at(zoom_d, p);
+                }
+            }
+            return;
+        }
 
         // Pan & zoom.
         if (mid_down || sec_down) && (hovered || resp.dragged()) {
@@ -1838,8 +1899,10 @@ impl App {
                 }
             }
             Tool::Select => {
-                let pin = if pressed && hovered && !shift { self.pin_near(self.to_world(pos)) } else { None };
-                if let Some(p) = pin {
+                let pin = if pressed && hovered && !shift && !self.mobile { self.pin_near(self.to_world(pos)) } else { None };
+                if self.mobile {
+                    self.phone_gesture(ui.ctx(), pos, pressed && hovered, down, dbl, now);
+                } else if let Some(p) = pin {
                     // Drag out of a terminal draws a wire (handy on touch screens).
                     self.drag = Drag::WireFrom { start: p };
                 } else if pressed && hovered {

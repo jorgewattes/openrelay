@@ -89,7 +89,17 @@ impl App {
             items.push(Some(("ℹ", t("ESTADO", "STATUS"), self.sheet_state(Sheet::Props), 5)));
             items.push(None);
             items.push(Some(("•••", t("MAIS", "MORE"), self.sheet_state(Sheet::More), 6)));
+        } else if self.multi {
+            let any = if has_sel { BtnState::Normal } else { BtnState::Disabled };
+            items.push(Some(("↻", t("GIRAR", "ROTATE"), any, 10)));
+            items.push(Some(("📋", t("COPIAR", "COPY"), any, 11)));
+            items.push(Some(("✂", t("RECORTAR", "CUT"), any, 13)));
+            items.push(Some(("🗑", t("EXCLUIR", "DELETE"), if has_sel { BtnState::Danger } else { BtnState::Disabled }, 12)));
+            items.push(None);
+            items.push(Some(("☑", t("TUDO", "ALL"), BtnState::Normal, 15)));
+            items.push(Some(("✔", "OK", BtnState::Go, 16)));
         } else if has_sel {
+            items.push(Some(("☑", t("VÁRIOS", "MULTI"), BtnState::Normal, 17)));
             items.push(Some(("🔧", t("VALORES", "VALUES"), self.sheet_state(Sheet::Props), 5)));
             items.push(Some(("↻", t("GIRAR", "ROTATE"), BtnState::Normal, 10)));
             items.push(Some(("📋", t("COPIAR", "COPY"), BtnState::Normal, 11)));
@@ -194,6 +204,21 @@ impl App {
             14 => {
                 self.lib_open = false;
                 self.paste(None);
+            }
+            15 => {
+                self.sel = self.circ.comps.iter().map(|c| c.id).collect();
+                self.sel_w = (0..self.circ.wires.len()).collect();
+                self.multi_status();
+            }
+            16 => {
+                self.multi = false;
+                self.clear_sel();
+                self.status.clear();
+            }
+            17 => {
+                self.multi = true;
+                self.sheet = Sheet::None;
+                self.multi_status();
             }
             _ => {
                 self.delete_selected();
@@ -498,6 +523,139 @@ impl App {
         });
     }
 
+    /// Phone select-tool gestures: tap selects (or toggles in multi-selection),
+    /// double tap opens the values, drag moves the part (or pans on empty space,
+    /// or draws a wire from a terminal), long press enters multi-selection
+    /// (on empty space it starts a selection box). Pinch is handled before.
+    pub(super) fn phone_gesture(&mut self, ctx: &egui::Context, pos: Pos2, pressed: bool, down: bool, dbl: bool, now: f64) {
+        const SLOP: f32 = 10.0;
+        const HOLD: f64 = 0.45;
+        if pressed {
+            let w = self.to_world(pos);
+            let comp = self.hit_comp(w);
+            let target = match (comp, self.pin_near(w)) {
+                // A terminal of a part that is not selected starts a wire.
+                (Some(id), Some(p)) if !self.sel.contains(&id) && !self.multi => Hit::Pin(p, Some(id)),
+                (Some(id), _) => Hit::Comp(id),
+                (None, Some(p)) => Hit::Pin(p, None),
+                (None, None) => match self.hit_wire(pos) {
+                    Some(wi) => Hit::Wire(wi),
+                    None => Hit::Empty,
+                },
+            };
+            self.drag = Drag::Pending { start: pos, t0: now, target };
+        }
+        match self.drag {
+            Drag::Pending { start, t0, target } => {
+                if !down {
+                    self.drag = Drag::None;
+                    self.phone_tap(target, dbl);
+                    return;
+                }
+                if (pos - start).length() > SLOP {
+                    match target {
+                        Hit::Comp(id) | Hit::Pin(_, Some(id)) if matches!(target, Hit::Comp(_)) || self.sel.contains(&id) => {
+                            if !self.sel.contains(&id) {
+                                if !self.multi {
+                                    self.clear_sel();
+                                }
+                                self.sel.insert(id);
+                            }
+                            self.drag = Drag::Move { last: self.snap(start), pushed: false };
+                        }
+                        Hit::Pin(p, _) => self.drag = Drag::WireFrom { start: p },
+                        Hit::Wire(wi) => {
+                            if !self.sel_w.contains(&wi) {
+                                if !self.multi {
+                                    self.clear_sel();
+                                }
+                                self.sel_w.insert(wi);
+                            }
+                            self.drag = Drag::Move { last: self.snap(start), pushed: false };
+                        }
+                        Hit::Comp(_) | Hit::Empty => {
+                            self.off += pos - start;
+                            self.drag = Drag::Pan;
+                        }
+                    }
+                } else if now - t0 > HOLD {
+                    // Long press: multi-selection.
+                    self.multi = true;
+                    self.sheet = Sheet::None;
+                    match target {
+                        Hit::Comp(id) | Hit::Pin(_, Some(id)) => {
+                            self.sel.insert(id);
+                            self.drag = Drag::Hold { start };
+                        }
+                        Hit::Wire(wi) => {
+                            self.sel_w.insert(wi);
+                            self.drag = Drag::Hold { start };
+                        }
+                        Hit::Pin(_, None) | Hit::Empty => self.drag = Drag::Rubber { start },
+                    }
+                    self.multi_status();
+                } else {
+                    ctx.request_repaint();
+                }
+            }
+            Drag::Hold { start } => {
+                if !down {
+                    self.drag = Drag::None;
+                } else if (pos - start).length() > SLOP {
+                    self.drag = Drag::Move { last: self.snap(start), pushed: false };
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn phone_tap(&mut self, target: Hit, dbl: bool) {
+        let comp = match target {
+            Hit::Comp(id) | Hit::Pin(_, Some(id)) => Some(id),
+            _ => None,
+        };
+        if let Some(id) = comp {
+            if self.multi {
+                if !self.sel.remove(&id) {
+                    self.sel.insert(id);
+                }
+                self.multi_status();
+            } else {
+                self.clear_sel();
+                self.sel.insert(id);
+                if dbl {
+                    self.sheet = Sheet::Props;
+                }
+            }
+        } else if let Hit::Wire(wi) = target {
+            if self.multi {
+                if !self.sel_w.remove(&wi) {
+                    self.sel_w.insert(wi);
+                }
+                self.multi_status();
+            } else {
+                self.clear_sel();
+                self.sel_w.insert(wi);
+            }
+        } else if !self.multi {
+            self.clear_sel();
+            self.sheet = Sheet::None;
+            if dbl {
+                self.fit_content();
+            }
+        }
+    }
+
+    pub(super) fn multi_status(&mut self) {
+        let n = self.sel.len() + self.sel_w.len();
+        self.status = format!(
+            "{} {n} {} {}",
+            t("Seleção múltipla:", "Multi-selection:"),
+            t("item(ns).", "item(s)."),
+            t("Toque para incluir/remover, arraste para mover, ✔ OK para sair.", "Tap to add/remove, drag to move, ✔ OK to finish.")
+        );
+    }
+
     /// Short hint chip at the bottom of the sheet (phones have no status bar).
     pub(super) fn mobile_hint(&self, painter: &egui::Painter) {
         let text = if !self.status.is_empty() {
@@ -508,8 +666,8 @@ impl App {
                     t("Toque nos botões e chaves para operá-los.", "Tap buttons and switches to operate them.").into()
                 }
                 Tool::Select => t(
-                    "Toque para selecionar · arraste de um borne para ligar · pinça para zoom",
-                    "Tap to select · drag from a terminal to wire · pinch to zoom",
+                    "Toque: selecionar · arraste: mover · segure: seleção múltipla · arraste de um borne: fio · pinça: zoom",
+                    "Tap: select · drag: move · hold: multi-select · drag from a terminal: wire · pinch: zoom",
                 )
                 .into(),
                 Tool::Wire => t("Toque num borne e depois no outro.", "Tap a terminal, then another.").into(),

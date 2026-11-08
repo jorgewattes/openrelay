@@ -826,7 +826,8 @@ fn pe_lead(d: &D, col: Color32, x_edge: f32) {
 
 fn motor_fill(c: &Comp, cx: &DrawCtx) -> Color32 {
     if cx.sim && c.st.motor != 0 {
-        if cx.dark { Color32::from_rgb(38, 56, 78) } else { Color32::from_rgb(222, 232, 244) }
+        // Very light tint: the windings stay easy to read while it turns.
+        if cx.dark { Color32::from_rgb(26, 40, 56) } else { Color32::from_rgb(238, 245, 253) }
     } else if cx.sim && c.st.hum {
         if cx.dark { Color32::from_rgb(96, 64, 20) } else { Color32::from_rgb(255, 228, 196) }
     } else {
@@ -838,7 +839,7 @@ fn motor_fill(c: &Comp, cx: &DrawCtx) -> Color32 {
 fn motor_ring(d: &D, c: &Comp, cx: &DrawCtx, x: f32, y: f32, r: f32) {
     d.circle(x, y, r, Some(motor_fill(c, cx)));
     if cx.sim && c.st.motor != 0 {
-        spin(d, c, x, y, r * 0.9);
+        spin(d, c, x, y, r + 0.75, r + 0.75);
     }
 }
 
@@ -853,7 +854,7 @@ fn motor_oval(d: &D, c: &Comp, cx: &DrawCtx, x: f32, y: f32, rx: f32, ry: f32) {
     d.p.add(Shape::convex_polygon(pts.clone(), motor_fill(c, cx), Stroke::NONE));
     d.p.add(Shape::closed_line(pts, Stroke::new(d.w, cx.ink)));
     if cx.sim && c.st.motor != 0 {
-        spin(d, c, x + rx + 1.2, y + ry - 0.8, 0.9);
+        spin(d, c, x, y, rx + 0.75, ry + 0.75);
     }
 }
 
@@ -862,62 +863,47 @@ fn motor_name(d: &D, _c: &Comp, cx: &DrawCtx, x: f32, y: f32, s: &str) {
     d.text(x, y, s, 0.85, Align2::LEFT_CENTER, cx.ink);
 }
 
-/// Turning arrow (speed follows the simulated angle).
-fn spin(d: &D, c: &Comp, x: f32, y: f32, rr: f32) {
-    let a0 = c.st.angle;
-    let span = PI * 1.2;
+/// Rotation symbol drawn just outside the motor body (so it never covers the
+/// windings): two turning arrows on an ellipse around the body, moving with
+/// the simulated angle; the arrow heads show the direction.
+fn spin(d: &D, c: &Comp, x: f32, y: f32, rx: f32, ry: f32) {
     let dir = c.st.motor as f32;
-    let pts = d.arc(x, y, rr, a0, a0 + span * dir);
-    let col = Color32::from_rgb(0, 140, 255);
-    d.p.add(Shape::line(pts, Stroke::new(d.w * 1.3, col)));
-    let ae = a0 + span * dir;
-    let tip = (x + rr * ae.cos(), y + rr * ae.sin());
-    let (tx, ty) = (-ae.sin() * dir, ae.cos() * dir);
-    let k = 0.5;
-    let back = (tip.0 - tx * k, tip.1 - ty * k);
-    let (nx, ny) = (-ty * k * 0.6, tx * k * 0.6);
-    let tri = vec![
-        d.xf.p(tip.0 + tx * 0.2, tip.1 + ty * 0.2),
-        d.xf.p(back.0 + nx, back.1 + ny),
-        d.xf.p(back.0 - nx, back.1 - ny),
-    ];
-    d.p.add(Shape::convex_polygon(tri, col, Stroke::NONE));
-}
-
-fn motor_body(d: &D, x: f32, y: f32, r: f32, c: &Comp, cx: &DrawCtx, kind: &str) {
-    let running = cx.sim && c.st.motor != 0;
-    let fill = if running {
-        if cx.dark { Color32::from_rgb(38, 56, 78) } else { Color32::from_rgb(214, 222, 232) }
-    } else if cx.sim && c.st.hum {
-        if cx.dark { Color32::from_rgb(96, 64, 20) } else { Color32::from_rgb(255, 225, 190) }
-    } else {
-        cx.paper
-    };
-    d.circle(x, y, r, Some(fill));
-    d.text(x, y - r * 0.28, "M", 1.25 * r / 2.0, Align2::CENTER_CENTER, cx.ink);
-    d.text(x, y + r * 0.38, kind, 0.95 * r / 2.0, Align2::CENTER_CENTER, cx.ink);
-    if running {
-        // Rotating arrow around the rotor.
-        let a0 = c.st.angle;
-        let span = PI * 1.2;
-        let rr = r * 0.82;
-        let pts = d.arc(x, y, rr, a0, a0 + span * c.st.motor as f32);
-        let col = Color32::from_rgb(0, 110, 220);
-        d.p.add(Shape::line(pts, Stroke::new(d.w * 1.2, col)));
-        let ae = a0 + span * c.st.motor as f32;
-        let tip = (x + rr * ae.cos(), y + rr * ae.sin());
-        let dir = c.st.motor as f32;
-        let tx = -ae.sin() * dir;
-        let ty = ae.cos() * dir;
-        let k = 0.5;
-        let back = (tip.0 - tx * k, tip.1 - ty * k);
-        let nx = -ty * k * 0.6;
-        let ny = tx * k * 0.6;
+    let col = Color32::from_rgb(0, 130, 245);
+    let span = PI * 0.62;
+    for k in 0..2 {
+        let a0 = c.st.angle + PI * k as f32;
+        let a1 = a0 + span * dir;
+        let n = 24;
+        let pts: Vec<Pos2> = (0..=n)
+            .map(|i| {
+                let a = a0 + (a1 - a0) * i as f32 / n as f32;
+                d.xf.p(x + rx * a.cos(), y + ry * a.sin())
+            })
+            .collect();
+        d.p.add(Shape::line(pts, Stroke::new(d.w * 1.5, col)));
+        // Arrow head along the tangent of the ellipse at the end.
+        let tip = (x + rx * a1.cos(), y + ry * a1.sin());
+        let (mut tx, mut ty) = (-rx * a1.sin() * dir, ry * a1.cos() * dir);
+        let l = (tx * tx + ty * ty).sqrt().max(0.001);
+        tx /= l;
+        ty /= l;
+        let s = 0.62;
+        let back = (tip.0 - tx * s, tip.1 - ty * s);
+        let (nx, ny) = (-ty * s * 0.55, tx * s * 0.55);
         let tri = vec![
-            d.xf.p(tip.0 + tx * 0.2, tip.1 + ty * 0.2),
+            d.xf.p(tip.0 + tx * 0.25, tip.1 + ty * 0.25),
             d.xf.p(back.0 + nx, back.1 + ny),
             d.xf.p(back.0 - nx, back.1 - ny),
         ];
         d.p.add(Shape::convex_polygon(tri, col, Stroke::NONE));
+    }
+}
+
+fn motor_body(d: &D, x: f32, y: f32, r: f32, c: &Comp, cx: &DrawCtx, kind: &str) {
+    d.circle(x, y, r, Some(motor_fill(c, cx)));
+    d.text(x, y - r * 0.28, "M", 1.25 * r / 2.0, Align2::CENTER_CENTER, cx.ink);
+    d.text(x, y + r * 0.38, kind, 0.95 * r / 2.0, Align2::CENTER_CENTER, cx.ink);
+    if cx.sim && c.st.motor != 0 {
+        spin(d, c, x, y, r + 0.6, r + 0.6);
     }
 }

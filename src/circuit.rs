@@ -724,6 +724,80 @@ impl Circuit {
         }
     }
 
+    /// Area used by the drawing (parts with room for their tags and labels, and wires).
+    pub fn drawing_box(&self) -> Option<(f32, f32, f32, f32)> {
+        let mut b: Option<(f32, f32, f32, f32)> = None;
+        let mut grow = |x0: f32, y0: f32, x1: f32, y1: f32| {
+            b = Some(match b {
+                None => (x0, y0, x1, y1),
+                Some((a, c, d, e)) => (a.min(x0), c.min(y0), d.max(x1), e.max(y1)),
+            });
+        };
+        for c in &self.comps {
+            let (x0, y0, x1, y1) = c.world_bounds();
+            if c.kind == Kind::Text {
+                grow(x0, y0, x1, y1);
+            } else {
+                // Tag on the left, terminal names above, labels below / right.
+                grow(x0 - 3.5, y0 - 0.5, x1 + 2.5, y1 + 0.5);
+            }
+        }
+        for w in &self.wires {
+            for p in [w.a, w.b] {
+                grow(p.x as f32 - 0.5, p.y as f32 - 0.5, p.x as f32 + 0.5, p.y as f32 + 0.5);
+            }
+        }
+        b
+    }
+
+    /// Choose the smallest page (and the orientation where the drawing fits best)
+    /// and centre the drawing inside the page frame.
+    pub fn fit_page(&mut self) {
+        let Some((x0, y0, x1, y1)) = self.drawing_box() else { return };
+        let (w, h) = (x1 - x0, y1 - y0);
+        // Frame interior: x 4 … W-2, y 4 … H-2, with a little air around the drawing.
+        let mut best: Option<(u8, bool)> = None;
+        'pages: for page in 0..PAGES.len() as u8 {
+            let mut choice: Option<(f32, bool)> = None;
+            for portrait in [false, true] {
+                let (_, pw, ph) = PAGES[page as usize];
+                let (sw, sh) = if portrait { (ph, pw) } else { (pw, ph) };
+                // The drawing box already holds room for tags and labels.
+                let (aw, ah) = (sw - 6.0, sh - 6.0);
+                if w <= aw && h <= ah {
+                    let s = (aw / w.max(1.0)).min(ah / h.max(1.0));
+                    // Landscape wins ties.
+                    if choice.is_none_or(|(bs, _)| s > bs + 0.05) {
+                        choice = Some((s, portrait));
+                    }
+                }
+            }
+            if let Some((_, portrait)) = choice {
+                best = Some((page, portrait));
+                break 'pages;
+            }
+        }
+        let (page, portrait) = best.unwrap_or((PAGES.len() as u8 - 1, false));
+        self.page = page;
+        self.portrait = portrait;
+        let (sw, sh) = self.sheet();
+        let (cx, cy) = ((4.0 + sw - 2.0) / 2.0, (4.0 + sh - 2.0) / 2.0);
+        let dx = (cx - (x0 + x1) / 2.0).round() as i32;
+        let dy = (cy - (y0 + y1) / 2.0).round() as i32;
+        if dx != 0 || dy != 0 {
+            for c in self.comps.iter_mut() {
+                c.pos.x += dx;
+                c.pos.y += dy;
+            }
+            for wr in self.wires.iter_mut() {
+                wr.a.x += dx;
+                wr.a.y += dy;
+                wr.b.x += dx;
+                wr.b.y += dy;
+            }
+        }
+    }
+
     pub fn add(&mut self, kind: Kind, pos: P, rot: u8, tag: &str) -> u32 {
         self.next_id = self.next_id.max(self.comps.iter().map(|c| c.id + 1).max().unwrap_or(0));
         let id = self.next_id;

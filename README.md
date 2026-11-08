@@ -21,7 +21,7 @@ O SimuEletro é uma releitura moderna dos simuladores clássicos de comandos el�
 ## Funcionalidades
 
 ### Desenho
-- Folha com grade, moldura, colunas e linhas, como numa folha de projeto: **A4, A3, A2 ou A1**, em **paisagem ou retrato** (Arquivo → Página; MAIS no celular).
+- Folha com grade, moldura, colunas e linhas, como numa folha de projeto: **A4, A3, A2 ou A1**, em **paisagem ou retrato** (Arquivo → Página; MAIS no celular). A opção **Acomodar diagrama na folha** escolhe o menor tamanho e a melhor orientação e centraliza o circuito; os exemplos já abrem assim, centralizados em A4.
 - **Texto livre** no diagrama (categoria Outros), com três tamanhos.
 - **Componentes organizados em categorias** (cada uma com sua cor na biblioteca):
   - **Fontes** (verde): fases L1, L2, L3, neutro N, terra PE, +24 V e 0 V CC.
@@ -46,6 +46,7 @@ O SimuEletro é uma releitura moderna dos simuladores clássicos de comandos el�
 - Fios com tensão coloridos: **vermelho** = fase / +24 V, **azul** = neutro / 0 V, **verde tracejado** = terra.
 - Botões funcionam enquanto pressionados; chaves, fins de curso, emergência, disjuntores e relés térmicos mudam de estado com um clique ou toque.
 - Contatores com selo e intertravamento, temporizadores com contagem visível.
+- Motor em funcionamento mostra **setas de rotação girando em volta do corpo** (o sentido das setas é o sentido de giro), sem cobrir as bobinas.
 - Motor trifásico gira no sentido da sequência de fases (inverter duas fases inverte o sentido) e avisa quando falta uma fase.
 - **Detecção de curto-circuito**, com aviso e destaque no trecho com problema.
 - Painel de estado com contatores, temporizadores, motores e lâmpadas.
@@ -54,7 +55,12 @@ O SimuEletro é uma releitura moderna dos simuladores clássicos de comandos el�
 
 ### Telas
 - **Computador:** menus, barra de ferramentas, lista de componentes à esquerda e propriedades à direita.
-- **Celular / tela estreita** (no estilo do app SimuRelay): barra superior com **MENU · PEÇAS · SIMULAR · FIO · MAIS · DESFAZER · REFAZER**; a biblioteca **PEÇAS** abre por cima da folha com um seletor de **categorias coloridas** e uma grade de símbolos. Com uma peça selecionada, a barra muda para **VALORES · GIRAR · COPIAR · EXCLUIR**. Há botões de zoom **− / +** e **⊡ (ajustar aos componentes)** no canto, e a moldura da página aparece também no celular. O navegador em **retrato** usa este mesmo layout; arraste com um dedo para mover a folha, use a pinça para o zoom e **arraste de um borne a outro para ligar um fio**.
+- **Celular / tela estreita** (no estilo dos apps de circuitos para celular): barra superior com **MENU · PEÇAS · SIMULAR · FIO · MAIS · DESFAZER · REFAZER**; a biblioteca **PEÇAS** abre por cima da folha com um seletor de **categorias coloridas** e uma grade de símbolos. Com uma peça selecionada, a barra muda para **VÁRIOS · VALORES · GIRAR · COPIAR · RECORTAR · EXCLUIR**. Há botões de zoom **− / +** e **⊡ (ajustar aos componentes)** no canto, e a moldura da página aparece também no celular. O navegador em **retrato** usa este mesmo layout.
+- **Gestos no celular:**
+  - **toque** numa peça ou fio: seleciona; **toque duplo** numa peça: abre os valores; toque duplo na folha vazia: ajusta o zoom ao circuito;
+  - **arrastar com um dedo** uma peça: move (com várias selecionadas, move todas); na folha vazia: desloca a folha; a partir de um **borne**: liga um fio;
+  - **pinça com dois dedos**: zoom, e arrastar com dois dedos desloca a folha;
+  - **tocar e segurar** uma peça: entra na **seleção múltipla** (cada toque inclui/remove itens; botões **TUDO** e **✔ OK**); tocar e segurar na folha vazia e arrastar desenha uma **caixa de seleção**.
 - **Modo claro por padrão**; o modo escuro ou Automático (segue o aparelho) pode ser escolhido em Ver → Tema, ou MAIS no celular.
 - Português e inglês (menu Ver → Idioma).
 
