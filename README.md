@@ -1,10 +1,14 @@
-# SimuEletro ⚡
+<p align="center"><img src="docs/marca.svg" alt="ComandoLivre – simulador livre de comandos elétricos" width="520" /></p>
 
-**Simulador de comandos elétricos que funciona no navegador, no computador e no celular.**
+# ComandoLivre
 
-O SimuEletro é uma releitura moderna dos simuladores clássicos de comandos elétricos (no estilo do CADe_SIMU). Com ele você desenha diagramas de força e de comando com símbolos no padrão IEC e depois **simula o circuito**: aperta botões, liga contatores, vê os motores girarem e as lâmpadas acenderem, com os fios mudando de cor conforme a tensão.
+**Simulador livre e de código aberto de comandos elétricos, que funciona no navegador, no computador e no celular.**
 
-👉 **Use online:** https://jorgewattes.github.io/simueletro/
+O nome junta as duas ideias do projeto: **comando** (comandos elétricos industriais: contatores, botoeiras, temporizadores, motores) e **livre** (software livre, código aberto sob a licença MIT). A marca é um **contato NA aberto** dentro de um **anel aberto**: um comando elétrico "aberto", como o código.
+
+O ComandoLivre é uma releitura moderna dos simuladores clássicos de comandos elétricos. Com ele você desenha diagramas de força e de comando com símbolos no padrão IEC e depois **simula o circuito**: aperta botões, liga contatores, vê os motores girarem e as lâmpadas acenderem, com os fios mudando de cor conforme a tensão.
+
+👉 **Use online:** https://jorgewattes.github.io/comandolivre/
 
 | Computador | Celular |
 |---|---|
@@ -40,7 +44,7 @@ O SimuEletro é uma releitura moderna dos simuladores clássicos de comandos el�
 - **Botoeiras com vários contatos:** dê a mesma identificação (ex.: S1) a vários contatos NA/NF e escolha o **Contato nº** nas propriedades (13-14, 21-22, 33-34…); na simulação todos mudam juntos. Use **–** no Contato nº para omitir o número (terminais 1-2 / 3-4).
 - Fios com cor própria, diferente dos símbolos.
 - Selecionar, mover (os fios acompanham), girar, excluir, desfazer e refazer.
-- **Copiar, recortar e colar** (Ctrl+C, Ctrl+X, Ctrl+V) e duplicar (Ctrl+D): o trecho colado vai para onde está o mouse; bobinas e botões colados ganham nova identificação (KM1 → KM2) e os contatos colados junto passam a seguir a nova bobina. Também funciona entre duas janelas/abas do SimuEletro.
+- **Copiar, recortar e colar** (Ctrl+C, Ctrl+X, Ctrl+V) e duplicar (Ctrl+D): o trecho colado vai para onde está o mouse; bobinas e botões colados ganham nova identificação (KM1 → KM2) e os contatos colados junto passam a seguir a nova bobina. Também funciona entre duas janelas/abas do ComandoLivre.
 
 ### Simulação
 - Fios com tensão coloridos: **vermelho** = fase / +24 V, **azul** = neutro / 0 V, **verde tracejado** = terra.
@@ -102,7 +106,7 @@ Como no simulador Falstad, um circuito pode ser enviado como **link**: **Arquivo
 
 ## Se o app não abrir
 
-O SimuEletro precisa de um navegador com **WebAssembly e WebGL** (Chrome, Edge, Firefox ou Safari atualizados). Se a página mostrar um aviso:
+O ComandoLivre precisa de um navegador com **WebAssembly e WebGL** (Chrome, Edge, Firefox ou Safari atualizados). Se a página mostrar um aviso:
 
 - abra o link no navegador do celular, e não dentro de outro app (WhatsApp, Instagram etc.);
 - atualize a página;
@@ -180,6 +184,7 @@ Cada envio para a branch `main` dispara o fluxo [`.github/workflows/pages.yml`](
 ```
 src/
 ├── main.rs      # início no computador e no navegador
+├── brand.rs     # nome, logotipo e ícone
 ├── app.rs       # telas (computador e celular), ferramentas e desenho da folha
 ├── circuit.rs   # componentes, fios e biblioteca de peças
 ├── draw.rs      # símbolos elétricos (IEC)
@@ -189,6 +194,10 @@ src/
 
 Testes da simulação: `cargo test`.
 
+## Código aberto
+
+O ComandoLivre é **software livre**, distribuído sob a [licença MIT](LICENSE): pode ser usado, estudado, modificado e redistribuído, inclusive em escolas e cursos. Sugestões, correções e novos exemplos são bem-vindos por *issues* e *pull requests*.
+
 ## Aviso
 
-Projeto educacional independente, inspirado nos simuladores de comandos elétricos. Não tem ligação com os autores do CADe_SIMU nem do SimuRelay. Não substitui projeto elétrico nem as normas (NBR 5410, NR-10 etc.).
+Projeto educacional independente, inspirado nos simuladores de comandos elétricos, sem ligação com outros programas do gênero. Não substitui projeto elétrico nem as normas (NBR 5410, NR-10 etc.).

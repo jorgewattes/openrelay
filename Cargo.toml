@@ -1,10 +1,13 @@
 [package]
-name = "simueletro"
+name = "comandolivre"
 version = "0.1.0"
+license = "MIT"
+description = "ComandoLivre: simulador livre de comandos elétricos"
+repository = "https://github.com/jorgewattes/comandolivre"
 edition = "2021"
 
 [[bin]]
-name = "simueletro"
+name = "comandolivre"
 path = "src/main.rs"
 
 [dependencies]

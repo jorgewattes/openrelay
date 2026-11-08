@@ -3,13 +3,14 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#151515" />
+    <meta name="theme-color" content="#0e7c5a" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="description" content="SimuEletro: simulador de comandos elétricos no navegador, no computador e no celular." />
-    <title>SimuEletro – simulador de comandos elétricos</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2319a055'/%3E%3Cpath d='M36 6 16 36h14l-4 22 22-32H34z' fill='white'/%3E%3C/svg%3E" />
-    <link data-trunk rel="rust" data-bin="simueletro" />
+    <meta name="description" content="ComandoLivre: simulador livre e de código aberto de comandos elétricos, no navegador, no computador e no celular." />
+    <title>ComandoLivre – simulador livre de comandos elétricos</title>
+    <link data-trunk rel="icon" href="docs/logo.svg" />
+    <link data-trunk rel="copy-file" href="docs/logo.svg" />
+    <link data-trunk rel="rust" data-bin="comandolivre" />
     <style>
         html, body {
             margin: 0;
@@ -17,14 +18,14 @@
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background: #151515;
-            color: #e8e8e8;
+            background: #f4f6f8;
+            color: #1f2933;
             font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
             touch-action: none;
             -webkit-user-select: none;
             user-select: none;
         }
-        #simueletro_canvas {
+        #comandolivre_canvas {
             position: absolute;
             inset: 0;
             width: 100%;
@@ -42,16 +43,17 @@
             gap: 14px;
             padding: 24px;
             text-align: center;
-            background: #151515;
+            background: #f4f6f8;
         }
         #loading p { max-width: 420px; line-height: 1.45; margin: 0; }
         #loading .erro { color: #ff8a80; font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
-        #loading a { color: #6cc4ff; }
+        #loading a { color: #0b6bcb; }
+        #loading .erro { color: #c62828; }
         .spinner {
             width: 36px;
             height: 36px;
-            border: 4px solid #3a3a3a;
-            border-top-color: #19a055;
+            border: 4px solid #d5dde3;
+            border-top-color: #0e7c5a;
             border-radius: 50%;
             animation: spin 0.9s linear infinite;
         }
@@ -71,7 +73,7 @@
                 el.innerHTML = html;
             }
             window.simuShowError = function (msg) {
-                show('<p><b>O SimuEletro não conseguiu abrir neste navegador.</b></p>' +
+                show('<p><b>O ComandoLivre não conseguiu abrir neste navegador.</b></p>' +
                     '<p>Tente atualizar a página ou abrir no Chrome, Edge, Firefox ou Safari atualizados ' +
                     '(fora de aplicativos como WhatsApp ou Instagram).</p>' +
                     '<p class="erro"></p>');
@@ -104,11 +106,12 @@
     </script>
 </head>
 <body>
-    <canvas id="simueletro_canvas"></canvas>
+    <canvas id="comandolivre_canvas"></canvas>
     <div id="loading">
         <div class="spinner"></div>
-        <p>Carregando o SimuEletro…</p>
+        <img src="logo.svg" width="72" height="72" alt="" />
+        <p><b>ComandoLivre</b><br />simulador livre de comandos elétricos</p>
     </div>
-    <noscript><p style="padding:24px">Ative o JavaScript para usar o SimuEletro.</p></noscript>
+    <noscript><p style="padding:24px">Ative o JavaScript para usar o ComandoLivre.</p></noscript>
 </body>
 </html>

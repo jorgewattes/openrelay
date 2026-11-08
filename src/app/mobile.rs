@@ -266,6 +266,9 @@ impl App {
     }
 
     fn menu_sheet(&mut self, ui: &mut egui::Ui) {
+        crate::brand::logo_title(ui, 26.0, text_col());
+        ui.label(RichText::new(crate::brand::tagline()).small().color(muted()));
+        ui.add_space(6.0);
         let full = Vec2::new(ui.available_width(), 42.0);
         let item = |ui: &mut egui::Ui, text: String| ui.add(egui::Button::new(text).min_size(full)).clicked();
         if item(ui, format!("🔗  {}", t("Compartilhar link do circuito", "Share circuit link"))) {

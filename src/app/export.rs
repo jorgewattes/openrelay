@@ -6,7 +6,7 @@
 use super::*;
 
 /// Tag put on the screenshots taken for exports.
-const EXPORT_TAG: &str = "simueletro-export";
+const EXPORT_TAG: &str = "comandolivre-export";
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum ExportFormat {
@@ -295,7 +295,7 @@ impl App {
         }
         let (bytes, name, mime) = match opts.format {
             ExportFormat::Pdf => {
-                let title = format!("SimuEletro – {}", self.title);
+                let title = format!("{} – {}", crate::brand::NAME, self.title);
                 (make_pdf(&img, &title), format!("{base}.pdf"), "application/pdf")
             }
             ExportFormat::Jpeg => {
@@ -343,7 +343,7 @@ impl App {
         self.off = Vec2::new(m - x0 * z, m - y0 * z);
         self.zoom = z;
         self.export = Some(Export { opts, stage: 255, view: (saved.1, saved.2) });
-        let layer = egui::LayerId::new(egui::Order::Background, egui::Id::new("simueletro_svg_export"));
+        let layer = egui::LayerId::new(egui::Order::Background, egui::Id::new("comandolivre_svg_export"));
         let painter = egui::Painter::new(ctx.clone(), layer, Rect::NOTHING);
         let th = draw::Theme::get(false);
         self.paint_circuit(&painter, &th);
@@ -674,7 +674,7 @@ mod tests {
     #[test]
     fn pdf_is_well_formed() {
         let img = image::RgbaImage::from_pixel(40, 20, image::Rgba([255, 255, 255, 255]));
-        let pdf = super::make_pdf(&img, "SimuEletro – Partida (teste)");
+        let pdf = super::make_pdf(&img, "ComandoLivre – Partida (teste)");
         let s = String::from_utf8_lossy(&pdf);
         assert!(s.starts_with("%PDF-1.4"));
         assert!(s.contains("/Subtype /Image /Width 40 /Height 20"));

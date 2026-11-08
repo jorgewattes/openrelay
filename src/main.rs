@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod brand;
 mod circuit;
 mod draw;
 mod examples;
@@ -45,11 +46,12 @@ fn main() -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size(size)
             .with_min_inner_size([320.0, 480.0])
-            .with_title("SimuEletro"),
+            .with_title(brand::NAME)
+            .with_icon(std::sync::Arc::new(egui::IconData { rgba: brand::icon_rgba(64), width: 64, height: 64 })),
         ..Default::default()
     };
     eframe::run_native(
-        "SimuEletro",
+        brand::NAME,
         options,
         Box::new(move |cc| Ok(Box::new(app::App::new(cc, shot, mobile)))),
     )
@@ -83,7 +85,7 @@ fn main() {
             return;
         };
         let Some(canvas) = document
-            .get_element_by_id("simueletro_canvas")
+            .get_element_by_id("comandolivre_canvas")
             .and_then(|e| e.dyn_into::<web_sys::HtmlCanvasElement>().ok())
         else {
             show_web_error("Área de desenho não encontrada na página.");

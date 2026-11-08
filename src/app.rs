@@ -37,8 +37,8 @@ struct Export {
     view: (Vec2, f32),
 }
 
-/// Marks SimuEletro pieces in the system clipboard.
-const CLIP_PREFIX: &str = "SIMUELETRO-CLIP:";
+/// Marks ComandoLivre pieces in the system clipboard.
+const CLIP_PREFIX: &str = "COMANDOLIVRE-CLIP:";
 
 
 const ACCENT: Color32 = Color32::from_rgb(0, 110, 230);
@@ -726,6 +726,8 @@ impl App {
             .frame(egui::Frame::new().fill(surface(self.dark)).inner_margin(Margin::symmetric(8, 3)))
             .show(ctx, |ui| {
                 egui::MenuBar::new().ui(ui, |ui| {
+                    crate::brand::logo_title(ui, 20.0, ui.visuals().strong_text_color());
+                    ui.add_space(6.0);
                     ui.menu_button(t("Arquivo", "File"), |ui| {
                         if ui.button(t("Novo            Ctrl+N", "New            Ctrl+N")).clicked() {
                             self.new_file();
@@ -905,7 +907,7 @@ impl App {
     }
 
     /// Ctrl+C: keep the selection in the app's clipboard and in the system one
-    /// (as text), so it can be pasted here or in another SimuEletro window.
+    /// (as text), so it can be pasted here or in another ComandoLivre window.
     fn copy_selected(&mut self, ctx: &egui::Context) -> bool {
         let Some(frag) = self.selection_fragment() else {
             self.status = t("Nada selecionado para copiar.", "Nothing selected to copy.").into();
@@ -939,7 +941,11 @@ impl App {
     /// the sheet, otherwise a little down-right of the original (moving further each time).
     fn paste(&mut self, from_text: Option<&str>) {
         let frag = from_text
-            .and_then(|s| s.trim().strip_prefix(CLIP_PREFIX))
+            .and_then(|s| {
+                let s = s.trim();
+                // Older copies used the previous name.
+                s.strip_prefix(CLIP_PREFIX).or_else(|| s.strip_prefix("SIMUELETRO-CLIP:"))
+            })
             .and_then(|j| serde_json::from_str::<Circuit>(j).ok())
             .or_else(|| self.clip.clone());
         let Some(frag) = frag else {
@@ -2540,6 +2546,13 @@ impl App {
             .default_width(420.0)
             .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
             .show(ctx, |ui| {
+                crate::brand::logo_title(ui, 30.0, ui.visuals().strong_text_color());
+                ui.label(crate::brand::tagline());
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(t("Software livre e de código aberto (licença MIT):", "Free and open-source software (MIT licence):"));
+                    ui.hyperlink_to(t("código no GitHub", "source on GitHub"), crate::brand::REPO_URL);
+                });
+                ui.separator();
                 let items: [(&str, &str); 7] = [
                     ("1. Escolha um componente na lista à esquerda e clique na folha para colocá-lo (R gira).",
                      "1. Pick a component in the list on the left and click the sheet to place it (R rotates)."),
@@ -2678,7 +2691,7 @@ impl eframe::App for App {
             ctx.request_repaint();
         }
         if self.frame % 30 == 1 {
-            let title = format!("SimuEletro – {}", self.title);
+            let title = format!("{} – {}", crate::brand::NAME, self.title);
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
         }
         if self.sim.running || self.shot.is_some() {
