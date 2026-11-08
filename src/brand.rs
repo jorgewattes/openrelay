@@ -1,17 +1,17 @@
-//! ComandoLivre brand: name, tagline and the logo mark.
+//! OpenRelay brand: name, tagline and the logo mark.
 //!
-//! The mark is a green rounded square with a normally-open contact (white)
+//! The mark is a green rounded square with a relay's normally-open contact (white)
 //! inside an open ring (light green): an electrical command that is "open",
-//! like free / open-source software.
+//! like open-source software.
 
 use eframe::egui::{self, Color32, CornerRadius, Pos2, Rect, Shape, Stroke, Vec2};
 
-pub const NAME: &str = "ComandoLivre";
-pub const REPO_URL: &str = "https://github.com/jorgewattes/comandolivre";
+pub const NAME: &str = "OpenRelay";
+pub const REPO_URL: &str = "https://github.com/jorgewattes/openrelay";
 
 pub fn tagline() -> &'static str {
     crate::circuit::t(
-        "Simulador livre de comandos elétricos",
+        "Simulador de comandos elétricos de código aberto",
         "Free and open-source electrical control simulator",
     )
 }

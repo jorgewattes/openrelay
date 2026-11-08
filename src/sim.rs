@@ -1289,4 +1289,68 @@ mod tests {
         assert!(!get(&c, Kind::Brake, "YB1").st.energized);
         assert!(s.fault.is_none(), "{:?}", s.fault);
     }
+
+    #[test]
+    fn new_challenges_do_not_work() {
+        let list = examples::corrections();
+        assert_eq!(list.len(), 15);
+        let open = |i: usize| -> (Circuit, Sim) {
+            let mut c = (list[i].2)();
+            let mut s = Sim::default();
+            s.start(&mut c);
+            (c, s)
+        };
+        // 6: star incomplete.
+        let (mut c, mut s) = open(5);
+        hold(&mut c, &mut s, "S1", 2);
+        let m = get(&c, Kind::Motor6X, "M1");
+        assert!(!(m.st.motor != 0 && m.st.conn == 1 && m.st.vstat == 0), "6");
+        // 7: delta incomplete.
+        let (mut c, mut s) = open(6);
+        hold(&mut c, &mut s, "S1", 2);
+        let m = get(&c, Kind::Motor6X, "M1");
+        assert!(!(m.st.motor != 0 && m.st.conn == 2 && m.st.vstat == 0), "7");
+        // 8: S1 cannot start KM1.
+        let (mut c, mut s) = open(7);
+        hold(&mut c, &mut s, "S1", 2);
+        assert!(!get(&c, Kind::Coil, "KM1").st.energized, "8");
+        // 9: M2 starts at once.
+        let (mut c, mut s) = open(8);
+        hold(&mut c, &mut s, "S1", 2);
+        assert_ne!(get(&c, Kind::Motor3, "M2").st.motor, 0, "9");
+        // 10: single-phase motor does not run.
+        let (mut c, mut s) = open(9);
+        hold(&mut c, &mut s, "S1", 2);
+        assert!(get(&c, Kind::Coil, "KM1").st.energized);
+        assert_eq!(get(&c, Kind::Motor1S, "M1").st.motor, 0, "10");
+        // 11: both directions the same.
+        let (mut c, mut s) = open(10);
+        hold(&mut c, &mut s, "S1", 2);
+        let d1 = get(&c, Kind::Motor1S, "M1").st.motor;
+        hold(&mut c, &mut s, "S0", 2);
+        hold(&mut c, &mut s, "S2", 2);
+        let d2 = get(&c, Kind::Motor1S, "M1").st.motor;
+        assert!(d1 != 0 && d1 == d2, "11: {d1} {d2}");
+        // 12: no high speed.
+        let (mut c, mut s) = open(11);
+        hold(&mut c, &mut s, "S1", 2);
+        assert_eq!(get(&c, Kind::MotorDahlander, "M1").st.conn, 1);
+        hold(&mut c, &mut s, "S0", 2);
+        hold(&mut c, &mut s, "S2", 2);
+        assert!(get(&c, Kind::Coil, "KM2").st.energized);
+        assert_ne!(get(&c, Kind::MotorDahlander, "M1").st.conn, 2, "12");
+        // 13: under-voltage.
+        let (mut c, mut s) = open(12);
+        hold(&mut c, &mut s, "S1", 2);
+        assert_ne!(get(&c, Kind::Motor12, "M1").st.vstat, 0, "13");
+        // 14: S2 alone does not start the high speed.
+        let (mut c, mut s) = open(13);
+        hold(&mut c, &mut s, "S2", 2);
+        assert!(!get(&c, Kind::Coil, "KM2").st.energized, "14");
+        // 15: brake never releases.
+        let (mut c, mut s) = open(14);
+        hold(&mut c, &mut s, "S1", 2);
+        assert_ne!(get(&c, Kind::Motor3, "M1").st.motor, 0);
+        assert!(!get(&c, Kind::Brake, "YB1").st.energized, "15");
+    }
 }

@@ -7,7 +7,7 @@
 use crate::circuit::{Circuit, Kind, P};
 
 /// Public address of the web version (used to build links from the desktop app).
-pub const PUBLIC_URL: &str = "https://jorgewattes.github.io/comandolivre/";
+pub const PUBLIC_URL: &str = "https://jorgewattes.github.io/openrelay/";
 
 /// Stable numbering of the parts inside links. Only ever append to this list.
 const KINDS: [Kind; 42] = [

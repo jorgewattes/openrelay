@@ -1,13 +1,13 @@
 [package]
-name = "comandolivre"
+name = "openrelay"
 version = "0.1.0"
 license = "MIT"
-description = "ComandoLivre: simulador livre de comandos elétricos"
-repository = "https://github.com/jorgewattes/comandolivre"
+description = "OpenRelay: simulador de comandos elétricos de código aberto"
+repository = "https://github.com/jorgewattes/openrelay"
 edition = "2021"
 
 [[bin]]
-name = "comandolivre"
+name = "openrelay"
 path = "src/main.rs"
 
 [dependencies]

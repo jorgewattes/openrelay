@@ -1,14 +1,14 @@
-<p align="center"><img src="docs/marca.svg" alt="ComandoLivre – simulador livre de comandos elétricos" width="520" /></p>
+<p align="center"><img src="docs/marca.svg" alt="OpenRelay – simulador de comandos elétricos de código aberto" width="520" /></p>
 
-# ComandoLivre
+# OpenRelay
 
-**Simulador livre e de código aberto de comandos elétricos, que funciona no navegador, no computador e no celular.**
+**Simulador de comandos elétricos de código aberto, que funciona no navegador, no computador e no celular.**
 
-O nome junta as duas ideias do projeto: **comando** (comandos elétricos industriais: contatores, botoeiras, temporizadores, motores) e **livre** (software livre, código aberto sob a licença MIT). A marca é um **contato NA aberto** dentro de um **anel aberto**: um comando elétrico "aberto", como o código.
+O nome junta as duas ideias do projeto: **Open** (código aberto, licença MIT) e **Relay** (relé: contatores, botoeiras, temporizadores e todo o comando elétrico). A marca é o **contato NA de um relé** dentro de um **anel aberto**: um comando elétrico "aberto", como o código.
 
-O ComandoLivre é uma releitura moderna dos simuladores clássicos de comandos elétricos. Com ele você desenha diagramas de força e de comando com símbolos no padrão IEC e depois **simula o circuito**: aperta botões, liga contatores, vê os motores girarem e as lâmpadas acenderem, com os fios mudando de cor conforme a tensão.
+O OpenRelay é uma releitura moderna dos simuladores clássicos de comandos elétricos. Com ele você desenha diagramas de força e de comando com símbolos no padrão IEC e depois **simula o circuito**: aperta botões, liga contatores, vê os motores girarem e as lâmpadas acenderem, com os fios mudando de cor conforme a tensão.
 
-👉 **Use online:** https://jorgewattes.github.io/comandolivre/
+👉 **Use online:** https://jorgewattes.github.io/openrelay/
 
 | Computador | Celular |
 |---|---|
@@ -44,7 +44,7 @@ O ComandoLivre é uma releitura moderna dos simuladores clássicos de comandos e
 - **Botoeiras com vários contatos:** dê a mesma identificação (ex.: S1) a vários contatos NA/NF e escolha o **Contato nº** nas propriedades (13-14, 21-22, 33-34…); na simulação todos mudam juntos. Use **–** no Contato nº para omitir o número (terminais 1-2 / 3-4).
 - Fios com cor própria, diferente dos símbolos.
 - Selecionar, mover (os fios acompanham), girar, excluir, desfazer e refazer.
-- **Copiar, recortar e colar** (Ctrl+C, Ctrl+X, Ctrl+V) e duplicar (Ctrl+D): o trecho colado vai para onde está o mouse; bobinas e botões colados ganham nova identificação (KM1 → KM2) e os contatos colados junto passam a seguir a nova bobina. Também funciona entre duas janelas/abas do ComandoLivre.
+- **Copiar, recortar e colar** (Ctrl+C, Ctrl+X, Ctrl+V) e duplicar (Ctrl+D): o trecho colado vai para onde está o mouse; bobinas e botões colados ganham nova identificação (KM1 → KM2) e os contatos colados junto passam a seguir a nova bobina. Também funciona entre duas janelas/abas do OpenRelay.
 
 ### Simulação
 - Fios com tensão coloridos: **vermelho** = fase / +24 V, **azul** = neutro / 0 V, **verde tracejado** = terra.
@@ -106,7 +106,7 @@ Como no simulador Falstad, um circuito pode ser enviado como **link**: **Arquivo
 
 ## Se o app não abrir
 
-O ComandoLivre precisa de um navegador com **WebAssembly e WebGL** (Chrome, Edge, Firefox ou Safari atualizados). Se a página mostrar um aviso:
+O OpenRelay precisa de um navegador com **WebAssembly e WebGL** (Chrome, Edge, Firefox ou Safari atualizados). Se a página mostrar um aviso:
 
 - abra o link no navegador do celular, e não dentro de outro app (WhatsApp, Instagram etc.);
 - atualize a página;
@@ -140,9 +140,9 @@ No menu **Arquivo → Exemplos** (ou ☰ no celular):
 16. Motor com freio eletromagnético alimentado por retificador.
 
 Em **Outros**: lâmpada temporizada e o exemplo de tensões.
-## Correções (encontre o erro)
+## Desafios (encontre o erro)
 
-Em **Arquivo → Correções** (ou ☰ MENU no celular) há 5 circuitos baseados nos exemplos, cada um com um erro sutil que impede o funcionamento. O título não revela o defeito; ao abrir, a barra de status diz o que o circuito deveria fazer.
+Em **Arquivo → Desafios** (ou ☰ MENU no celular) há **15 desafios** baseados nos exemplos (partida direta, motores de 6 e 12 terminais, reversões, partida sequencial, estrela-triângulo, monofásicos, Dahlander, dois enrolamentos, freio e lâmpada temporizada), cada um com um erro sutil que impede o funcionamento. O título não revela o defeito; ao abrir, a barra de status diz o que o circuito deveria fazer.
 
 ## Como usar
 
@@ -196,7 +196,7 @@ Testes da simulação: `cargo test`.
 
 ## Código aberto
 
-O ComandoLivre é **software livre**, distribuído sob a [licença MIT](LICENSE): pode ser usado, estudado, modificado e redistribuído, inclusive em escolas e cursos. Sugestões, correções e novos exemplos são bem-vindos por *issues* e *pull requests*.
+O OpenRelay é **software livre**, distribuído sob a [licença MIT](LICENSE): pode ser usado, estudado, modificado e redistribuído, inclusive em escolas e cursos. Sugestões, correções e novos exemplos são bem-vindos por *issues* e *pull requests*.
 
 ## Aviso
 

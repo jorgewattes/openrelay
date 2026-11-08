@@ -37,8 +37,8 @@ struct Export {
     view: (Vec2, f32),
 }
 
-/// Marks ComandoLivre pieces in the system clipboard.
-const CLIP_PREFIX: &str = "COMANDOLIVRE-CLIP:";
+/// Marks OpenRelay pieces in the system clipboard.
+const CLIP_PREFIX: &str = "OPENRELAY-CLIP:";
 
 
 const ACCENT: Color32 = Color32::from_rgb(0, 110, 230);
@@ -763,7 +763,7 @@ impl App {
                                 }
                             }
                         });
-                        ui.menu_button(t("Correções (encontre o erro)", "Corrections (find the fault)"), |ui| {
+                        ui.menu_button(t("Desafios (encontre o erro)", "Challenges (find the fault)"), |ui| {
                             for (name, goal, f) in examples::corrections() {
                                 if ui.button(name).on_hover_text(goal).clicked() {
                                     self.open_correction(name, goal, f());
@@ -907,7 +907,7 @@ impl App {
     }
 
     /// Ctrl+C: keep the selection in the app's clipboard and in the system one
-    /// (as text), so it can be pasted here or in another ComandoLivre window.
+    /// (as text), so it can be pasted here or in another OpenRelay window.
     fn copy_selected(&mut self, ctx: &egui::Context) -> bool {
         let Some(frag) = self.selection_fragment() else {
             self.status = t("Nada selecionado para copiar.", "Nothing selected to copy.").into();

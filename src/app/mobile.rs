@@ -305,7 +305,7 @@ impl App {
             }
         }
         ui.add_space(6.0);
-        ui.label(RichText::new(t("Correções (encontre o erro)", "Corrections (find the fault)")).strong().color(text_col()));
+        ui.label(RichText::new(t("Desafios (encontre o erro)", "Challenges (find the fault)")).strong().color(text_col()));
         for (name, goal, f) in examples::corrections() {
             if item(ui, format!("🔎  {name}")) {
                 self.open_correction(name, goal, f());

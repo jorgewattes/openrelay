@@ -819,7 +819,7 @@ pub fn star_delta() -> Circuit {
 pub fn corrections() -> Vec<(&'static str, &'static str, fn() -> Circuit)> {
     vec![
         (
-            t("Correção 1 – Partida direta com sinalização", "Correction 1 – Direct start with indicator lamps"),
+            t("Desafio 1 – Partida direta com sinalização", "Challenge 1 – Direct start with indicator lamps"),
             t(
                 "apertar S2 liga o motor e ele continua ligado ao soltar; S1 desliga.",
                 "pressing S2 starts the motor and it keeps running when released; S1 stops it.",
@@ -827,12 +827,12 @@ pub fn corrections() -> Vec<(&'static str, &'static str, fn() -> Circuit)> {
             ex::fault_seal as fn() -> Circuit,
         ),
         (
-            t("Correção 2 – Partida direta", "Correction 2 – Direct start"),
+            t("Desafio 2 – Partida direta", "Challenge 2 – Direct start"),
             t("com KM1 ligado, o motor M1 deve girar.", "with KM1 on, motor M1 must turn."),
             ex::fault_main as fn() -> Circuit,
         ),
         (
-            t("Correção 3 – Reversão", "Correction 3 – Reversing"),
+            t("Desafio 3 – Reversão", "Challenge 3 – Reversing"),
             t(
                 "S1 gira o motor num sentido e S2 no sentido contrário.",
                 "S1 turns the motor one way and S2 the other way.",
@@ -840,7 +840,7 @@ pub fn corrections() -> Vec<(&'static str, &'static str, fn() -> Circuit)> {
             ex::fault_reverse as fn() -> Circuit,
         ),
         (
-            t("Correção 4 – Lâmpada temporizada", "Correction 4 – Timed lamp"),
+            t("Desafio 4 – Lâmpada temporizada", "Challenge 4 – Timed lamp"),
             t(
                 "a lâmpada H1 acende 5 s depois de apertar S1.",
                 "lamp H1 lights 5 s after pressing S1.",
@@ -848,12 +848,80 @@ pub fn corrections() -> Vec<(&'static str, &'static str, fn() -> Circuit)> {
             ex::fault_timer as fn() -> Circuit,
         ),
         (
-            t("Correção 5 – Estrela-triângulo", "Correction 5 – Star-delta"),
+            t("Desafio 5 – Estrela-triângulo", "Challenge 5 – Star-delta"),
             t(
                 "o motor parte em estrela (KM2) e após 5 s passa para triângulo (KM3).",
                 "the motor starts in star (KM2) and after 5 s changes to delta (KM3).",
             ),
             ex::fault_star_delta as fn() -> Circuit,
+        ),
+        (
+            t("Desafio 6 – Motor de 6 terminais em estrela", "Challenge 6 – 6-terminal motor in star"),
+            t("S1 liga KM1 e o motor gira fechado em estrela (Y).", "S1 switches KM1 on and the motor runs closed in star (Y)."),
+            ex::fault_star6 as fn() -> Circuit,
+        ),
+        (
+            t("Desafio 7 – Motor de 6 terminais em triângulo", "Challenge 7 – 6-terminal motor in delta"),
+            t("S1 liga KM1 e o motor gira fechado em triângulo (Δ).", "S1 switches KM1 on and the motor runs closed in delta (Δ)."),
+            ex::fault_delta6 as fn() -> Circuit,
+        ),
+        (
+            t("Desafio 8 – Reversão com intertravamento duplo", "Challenge 8 – Reversing with double interlock"),
+            t(
+                "S1 gira para um lado e S2 para o outro, trocando o sentido sem precisar desligar.",
+                "S1 turns one way and S2 the other, changing direction without stopping first.",
+            ),
+            ex::fault_double as fn() -> Circuit,
+        ),
+        (
+            t("Desafio 9 – Partida sequencial temporizada", "Challenge 9 – Timed sequential start"),
+            t("S1 liga o motor M1 e, 5 s depois, o motor M2 parte sozinho.", "S1 starts motor M1 and, 5 s later, motor M2 starts by itself."),
+            ex::fault_cascade as fn() -> Circuit,
+        ),
+        (
+            t("Desafio 10 – Motor monofásico", "Challenge 10 – Single-phase motor"),
+            t("S1 liga KM1 e o motor monofásico parte e gira.", "S1 switches KM1 on and the single-phase motor starts and runs."),
+            ex::fault_single as fn() -> Circuit,
+        ),
+        (
+            t("Desafio 11 – Reversão de motor monofásico", "Challenge 11 – Single-phase reversing"),
+            t(
+                "S1 gira o motor monofásico num sentido e S2 no sentido contrário.",
+                "S1 turns the single-phase motor one way and S2 the other way.",
+            ),
+            ex::fault_single_rev as fn() -> Circuit,
+        ),
+        (
+            t("Desafio 12 – Motor Dahlander", "Challenge 12 – Dahlander motor"),
+            t(
+                "S1 liga a velocidade baixa; depois de parar com S0, S2 liga a velocidade alta.",
+                "S1 runs the low speed; after stopping with S0, S2 runs the high speed.",
+            ),
+            ex::fault_dahlander as fn() -> Circuit,
+        ),
+        (
+            t("Desafio 13 – Motor de 12 terminais", "Challenge 13 – 12-terminal motor"),
+            t(
+                "o motor, fechado em triângulo série (440 V), gira com a tensão nominal, sem aviso.",
+                "the motor, closed in series delta (440 V), runs at its rated voltage, with no warning.",
+            ),
+            ex::fault_m12 as fn() -> Circuit,
+        ),
+        (
+            t("Desafio 14 – Motor de dois enrolamentos", "Challenge 14 – Two-winding motor"),
+            t(
+                "S1 liga a velocidade baixa; depois de parar com S0, S2 liga a velocidade alta.",
+                "S1 runs the low speed; after stopping with S0, S2 runs the high speed.",
+            ),
+            ex::fault_two_winding as fn() -> Circuit,
+        ),
+        (
+            t("Desafio 15 – Motor com freio", "Challenge 15 – Motor with brake"),
+            t(
+                "com o motor ligado o freio solta (fica verde); ao parar, o freio trava o motor.",
+                "with the motor on the brake releases (turns green); when it stops, the brake holds the motor.",
+            ),
+            ex::fault_brake as fn() -> Circuit,
         ),
     ]
 }
@@ -916,6 +984,108 @@ fn fault_star_delta() -> Circuit {
     }
     c
 }
+// ---------- challenge helpers ----------
+
+fn comp_of(c: &Circuit, kind: Kind, tag: &str) -> crate::circuit::Comp {
+    c.comps.iter().find(|k| k.kind == kind && k.tag == tag).cloned().expect("part in example")
+}
+
+/// Remove the wires that end on point `p`.
+fn cut_at(c: &mut Circuit, p: P) {
+    c.wires.retain(|w| w.a != p && w.b != p);
+}
+
+/// Star point missing one end: V2 is not tied to U2/W2.
+fn fault_star6() -> Circuit {
+    let mut c = direct_star6();
+    let m = comp_of(&c, Motor6X, "M1");
+    cut_at(&mut c, m.pin(4));
+    c
+}
+
+/// One delta bridge (V1 → U2) does not reach the motor.
+fn fault_delta6() -> Circuit {
+    let mut c = direct_delta6();
+    let m = comp_of(&c, Motor6X, "M1");
+    cut_at(&mut c, m.pin(3));
+    c
+}
+
+/// The extra NC contact in the forward branch belongs to S1 itself instead of S2:
+/// pressing S1 opens its own branch.
+fn fault_double() -> Circuit {
+    let mut c = reversing_double();
+    if let Some(k) = c.comps.iter_mut().find(|k| k.kind == PushNc && k.tag == "S2") {
+        k.tag = "S1".into();
+    }
+    c
+}
+
+/// M2's main contacts follow KM1: M2 starts together with M1.
+fn fault_cascade() -> Circuit {
+    let mut c = cascade();
+    if let Some(k) = c.comps.iter_mut().find(|k| k.kind == Main3 && k.tag == "KM2") {
+        k.tag = "KM1".into();
+    }
+    c
+}
+
+/// Start winding Z1 left unconnected: the motor only hums.
+fn fault_single() -> Circuit {
+    let mut c = single_direct();
+    let m = comp_of(&c, Motor1S, "M1");
+    cut_at(&mut c, m.pin(2));
+    c
+}
+
+/// KM2 feeds the start winding the same way as KM1: both turn the same way.
+fn fault_single_rev() -> Circuit {
+    let mut c = single_reversing();
+    let k = comp_of(&c, Main3, "KM2");
+    let (z1, z2) = (k.pin(1), k.pin(2));
+    cut_at(&mut c, z1);
+    cut_at(&mut c, z2);
+    // Z1 from the L1 bus (4 above), Z2 from the N bus (3 above).
+    c.wire((z1.x, z1.y - 4), (z1.x, z1.y));
+    c.wire((z2.x, z2.y - 3), (z2.x, z2.y));
+    c
+}
+
+/// KM3 ties only two of 1U 1V 1W: no high speed.
+fn fault_dahlander() -> Circuit {
+    let mut c = dahlander();
+    let k = comp_of(&c, Main3, "KM3");
+    cut_at(&mut c, k.pin(3));
+    c
+}
+
+/// Supply left on 220/380 V for a motor closed for 440 V: it turns slowly.
+fn fault_m12() -> Circuit {
+    let mut c = m12_d();
+    for k in c.comps.iter_mut().filter(|k| matches!(k.kind, TermL1 | TermL2 | TermL3)) {
+        k.volt = 0;
+    }
+    c
+}
+
+/// The interlock in the high-speed branch is an NO contact of KM1 instead of NC.
+fn fault_two_winding() -> Circuit {
+    let mut c = two_winding();
+    if let Some(k) = c.comps.iter_mut().find(|k| k.kind == ContactNc && k.tag == "KM1") {
+        k.kind = ContactNo;
+    }
+    c
+}
+
+/// Rectifier set to full-wave: twice the brake's DC voltage, it never releases.
+fn fault_brake() -> Circuit {
+    let mut c = brake_motor();
+    if let Some(k) = c.comps.iter_mut().find(|k| k.kind == Rectifier) {
+        k.volt = 1;
+    }
+    c
+}
+
 /// What the menus open: each example centred on the best-fitting page.
 macro_rules! fitted {
     ($($f:ident),* $(,)?) => {
@@ -936,6 +1106,8 @@ fitted!(
     direct_start, direct_star6, direct_delta6, reversing, reversing_double, cascade, star_delta,
     single_direct, single_reversing, dahlander, m12_dd, m12_yy, m12_d, m12_y, two_winding, brake_motor,
     timed_lamp, voltages, fault_seal, fault_main, fault_reverse, fault_timer, fault_star_delta,
+    fault_star6, fault_delta6, fault_double, fault_cascade, fault_single, fault_single_rev,
+    fault_dahlander, fault_m12, fault_two_winding, fault_brake,
 );
 
 #[cfg(test)]

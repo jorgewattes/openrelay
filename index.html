@@ -6,11 +6,11 @@
     <meta name="theme-color" content="#0e7c5a" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="description" content="ComandoLivre: simulador livre e de código aberto de comandos elétricos, no navegador, no computador e no celular." />
-    <title>ComandoLivre – simulador livre de comandos elétricos</title>
+    <meta name="description" content="OpenRelay: simulador de comandos elétricos de código aberto, no navegador, no computador e no celular." />
+    <title>OpenRelay – simulador de comandos elétricos de código aberto</title>
     <link data-trunk rel="icon" href="docs/logo.svg" />
     <link data-trunk rel="copy-file" href="docs/logo.svg" />
-    <link data-trunk rel="rust" data-bin="comandolivre" />
+    <link data-trunk rel="rust" data-bin="openrelay" />
     <style>
         html, body {
             margin: 0;
@@ -25,7 +25,7 @@
             -webkit-user-select: none;
             user-select: none;
         }
-        #comandolivre_canvas {
+        #openrelay_canvas {
             position: absolute;
             inset: 0;
             width: 100%;
@@ -73,7 +73,7 @@
                 el.innerHTML = html;
             }
             window.simuShowError = function (msg) {
-                show('<p><b>O ComandoLivre não conseguiu abrir neste navegador.</b></p>' +
+                show('<p><b>O OpenRelay não conseguiu abrir neste navegador.</b></p>' +
                     '<p>Tente atualizar a página ou abrir no Chrome, Edge, Firefox ou Safari atualizados ' +
                     '(fora de aplicativos como WhatsApp ou Instagram).</p>' +
                     '<p class="erro"></p>');
@@ -106,12 +106,12 @@
     </script>
 </head>
 <body>
-    <canvas id="comandolivre_canvas"></canvas>
+    <canvas id="openrelay_canvas"></canvas>
     <div id="loading">
         <div class="spinner"></div>
         <img src="logo.svg" width="72" height="72" alt="" />
-        <p><b>ComandoLivre</b><br />simulador livre de comandos elétricos</p>
+        <p><b>OpenRelay</b><br />simulador de comandos elétricos de código aberto</p>
     </div>
-    <noscript><p style="padding:24px">Ative o JavaScript para usar o ComandoLivre.</p></noscript>
+    <noscript><p style="padding:24px">Ative o JavaScript para usar o OpenRelay.</p></noscript>
 </body>
 </html>

@@ -85,7 +85,7 @@ fn main() {
             return;
         };
         let Some(canvas) = document
-            .get_element_by_id("comandolivre_canvas")
+            .get_element_by_id("openrelay_canvas")
             .and_then(|e| e.dyn_into::<web_sys::HtmlCanvasElement>().ok())
         else {
             show_web_error("Área de desenho não encontrada na página.");
