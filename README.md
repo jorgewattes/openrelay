@@ -37,6 +37,7 @@ O OpenRelay é uma releitura moderna dos simuladores clássicos de comandos elé
   - **Proteções** (vermelho): fusível, **disjuntores termomagnéticos** monopolar, bipolar e tripolar (disparo térmico e magnético), **disjuntor-motor tripolar** (elemento térmico em cada polo e manopla), **DR bipolar e tetrapolar** (desarma com fuga de corrente para a terra ou com um clique, como o botão de teste) e relé térmico de sobrecarga.
   - **Motores** (verde-escuro), com bobinas coloridas (U azul, V vermelha, W preta) e nomes dos terminais: monofásico/CC; monofásico com **bobina auxiliar de partida** (U1-U2, Z1-Z2); monofásico **2 tensões** 127/220 V (U1-U2, U3-U4 e auxiliar Z1-Z2); trifásico de **3 terminais** com estrela interna; trifásico de **6 terminais** com bobinas cruzadas (W2 U2 V2 embaixo, triângulo com pontes retas) ou **verticais**; trifásico de **12 terminais** com corpo de motor (ΔΔ 220 / YY 380 / Δ 440 / Y 760 V); **Dahlander** (2 velocidades) e **dois enrolamentos**.
   - **Freio eletromagnético** (Cargas) e **módulo retificador** (Outros): o freio CC só solta com a tensão nominal vinda do retificador.
+  - **Fonte CA/CC** (Outros): alimentada em CA (220 ou 127 V, escolhido nas propriedades), fornece **+24 V ou +12 V CC** nas saídas + e −; só liga com a tensão de entrada correta.
 - Ligação por fios com cantos automáticos, junções marcadas e bornes livres destacados.
 - Identificação automática (KM1, S1, H1, Q1…) e numeração dos bornes (13-14, 21-22, A1-A2, 1-2…).
 - Contatos **seguem** a bobina, o temporizador ou o disjuntor (campo **Segue**); um contato colocado sem bobina na folha fica sem "segue". O número do contato pode ser trocado em qualquer contato, inclusive de relé térmico e temporizador (padrão **9**: 95-96 / 97-98); caixa vazia ou **–** omite o número.
@@ -58,7 +59,7 @@ O OpenRelay é uma releitura moderna dos simuladores clássicos de comandos elé
 - Motores monofásicos só partem com a bobina auxiliar ligada; inverter Z1/Z2 inverte o sentido.
 
 ### Telas
-- **Computador:** menus, barra de ferramentas, lista de componentes à esquerda e propriedades à direita.
+- **Computador:** menus, barra de ferramentas, lista de componentes à esquerda e propriedades à direita; os dois painéis laterais podem ser **recolhidos** (botões « / ») e ficam como uma faixa fina na lateral, liberando espaço para a folha.
 - **Celular / tela estreita** (no estilo dos apps de circuitos para celular): barra superior com **MENU · PEÇAS · SIMULAR · FIO · MAIS · DESFAZER · REFAZER**; a biblioteca **PEÇAS** abre por cima da folha com um seletor de **categorias coloridas** e uma grade de símbolos. Com uma peça selecionada, a barra muda para **VÁRIOS · VALORES · GIRAR · COPIAR · RECORTAR · EXCLUIR**. Há botões de zoom **− / +** e **⊡ (ajustar aos componentes)** no canto, e a moldura da página aparece também no celular. O navegador em **retrato** usa este mesmo layout.
 - **Gestos no celular:**
   - **toque** numa peça ou fio: seleciona; **toque duplo** numa peça: abre os valores; toque duplo na folha vazia: ajusta o zoom ao circuito;

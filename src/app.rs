@@ -150,6 +150,9 @@ pub struct App {
     paste_n: i32,
     /// Phone multi-selection mode (entered with a long press).
     multi: bool,
+    /// Computer layout: parts list (left) and properties (right) shown or collapsed.
+    left_open: bool,
+    right_open: bool,
 }
 
 impl App {
@@ -200,6 +203,8 @@ impl App {
             clip: None,
             paste_n: 0,
             multi: false,
+            left_open: true,
+            right_open: true,
         };
         // Preview helper for pictures: SIMU_SHEET=library|categories|selected.
         let preview = std::env::var("SIMU_SHEET").unwrap_or_default();
@@ -230,11 +235,17 @@ impl App {
                 let n = app.circ.add(Kind::PushNc, (40, 36).into(), 0, "S1");
                 app.circ.comp_mut(n).unwrap().num = 1;
             }
+            "collapsed" => {
+                app.left_open = false;
+                app.right_open = false;
+            }
             "symbols" => {
                 let mut c = Circuit::default();
                 c.add(Kind::Supply5, (60, 50).into(), 0, "");
                 c.add(Kind::Supply3, (84, 50).into(), 0, "");
                 c.add(Kind::TermL2, (104, 50).into(), 0, "");
+                c.add(Kind::Rectifier, (20, 46).into(), 0, "U1");
+                c.add(Kind::PowerSupply, (34, 46).into(), 0, "G1");
                 c.add(Kind::Breaker1, (10, 8).into(), 0, "Q1");
                 c.add(Kind::Breaker2, (22, 8).into(), 0, "Q2");
                 c.add(Kind::Breaker3, (36, 8).into(), 0, "Q3");
@@ -1267,12 +1278,29 @@ impl App {
     }
 
     fn palette(&mut self, ctx: &egui::Context) {
+        if !self.left_open {
+            if let Some(open) = collapsed_rail(ctx, "palette_min", true, t("Componentes", "Components"), self.dark) {
+                self.left_open = open;
+            }
+            return;
+        }
         egui::SidePanel::left("palette")
             .resizable(false)
             .exact_width(232.0)
             .frame(egui::Frame::new().fill(panel_bg(self.dark)).inner_margin(Margin::symmetric(10, 10)))
             .show(ctx, |ui| {
-                ui.label(RichText::new(t("Componentes", "Components")).strong().size(15.0));
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(t("Componentes", "Components")).strong().size(15.0));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .small_button("«")
+                            .on_hover_text(t("Recolher para a lateral", "Collapse to the side"))
+                            .clicked()
+                        {
+                            self.left_open = false;
+                        }
+                    });
+                });
                 ui.add_space(4.0);
                 let edit = !self.sim.running;
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
@@ -1295,11 +1323,27 @@ impl App {
     }
 
     fn properties(&mut self, ctx: &egui::Context) {
+        if !self.right_open {
+            let title = if self.sim.running { t("Simulação", "Simulation") } else { t("Propriedades", "Properties") };
+            if let Some(open) = collapsed_rail(ctx, "props_min", false, title, self.dark) {
+                self.right_open = open;
+            }
+            return;
+        }
         egui::SidePanel::right("props")
             .resizable(false)
             .exact_width(250.0)
             .frame(egui::Frame::new().fill(panel_bg(self.dark)).inner_margin(Margin::symmetric(12, 10)))
             .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    if ui
+                        .small_button("»")
+                        .on_hover_text(t("Recolher para a lateral", "Collapse to the side"))
+                        .clicked()
+                    {
+                        self.right_open = false;
+                    }
+                });
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                     if self.sim.running {
                         self.sim_panel(ui);
@@ -1365,6 +1409,18 @@ impl App {
                             for (k, name) in [(Kind::TermL1, "L1"), (Kind::TermL2, "L2"), (Kind::TermL3, "L3")] {
                                 if ui.selectable_label(c.kind == k, RichText::new(name).strong()).clicked() && c.kind != k {
                                     c.kind = k;
+                                    changed = true;
+                                }
+                            }
+                        });
+                    }
+                    // Power supply: DC output level (the AC input is the list below).
+                    if c.kind == Kind::PowerSupply {
+                        ui.label(t("Saída (CC)", "Output (DC)"));
+                        ui.horizontal(|ui| {
+                            for (i, v) in crate::circuit::DC_LEVELS.iter().enumerate() {
+                                if ui.selectable_label(c.color as usize == i, format!("{v:.0} V CC")).clicked() && c.color as usize != i {
+                                    c.color = i as u8;
                                     changed = true;
                                 }
                             }
@@ -2949,4 +3005,39 @@ fn seg_dist(p: Pos2, a: Pos2, b: Pos2) -> f32 {
     }
     let tt = ((p - a).dot(ab) / len2).clamp(0.0, 1.0);
     (p - (a + ab * tt)).length()
+}
+
+/// A collapsed side panel: a thin rail with a button to open it again and the
+/// panel's name written vertically. Returns Some(true) when the user opens it.
+fn collapsed_rail(ctx: &egui::Context, id: &str, left: bool, title: &str, dark: bool) -> Option<bool> {
+    let mut open = None;
+    let panel = if left { egui::SidePanel::left(id.to_owned()) } else { egui::SidePanel::right(id.to_owned()) };
+    panel
+        .resizable(false)
+        .exact_width(30.0)
+        .frame(egui::Frame::new().fill(panel_bg(dark)).inner_margin(Margin::symmetric(3, 8)))
+        .show(ctx, |ui| {
+            let (icon, tip) = if left {
+                ("»", t("Mostrar a lista de componentes", "Show the parts list"))
+            } else {
+                ("«", t("Mostrar o painel", "Show the panel"))
+            };
+            let b = ui.add_sized([24.0, 24.0], egui::Button::new(icon)).on_hover_text(tip);
+            if b.clicked() {
+                open = Some(true);
+            }
+            // Panel name, written along the rail (click it to open too).
+            let rest = ui.available_rect_before_wrap();
+            let r = ui.interact(rest, ui.id().with("rail"), Sense::click()).on_hover_text(tip);
+            if r.clicked() {
+                open = Some(true);
+            }
+            let col = ui.visuals().weak_text_color();
+            let galley = ui.painter().layout_no_wrap(title.to_string(), FontId::proportional(13.0), col);
+            let pos = Pos2::new(rest.center().x + galley.size().y / 2.0, rest.top() + 10.0);
+            ui.painter().add(
+                egui::epaint::TextShape::new(pos, galley, col).with_angle(std::f32::consts::FRAC_PI_2),
+            );
+        });
+    open
 }

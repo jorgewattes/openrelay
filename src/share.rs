@@ -10,7 +10,7 @@ use crate::circuit::{Circuit, Kind, P};
 pub const PUBLIC_URL: &str = "https://jorgewattes.github.io/openrelay/";
 
 /// Stable numbering of the parts inside links. Only ever append to this list.
-const KINDS: [Kind; 44] = [
+const KINDS: [Kind; 45] = [
     Kind::TermL1,
     Kind::TermL2,
     Kind::TermL3,
@@ -55,6 +55,7 @@ const KINDS: [Kind; 44] = [
     Kind::Brake,
     Kind::Supply3,
     Kind::Supply5,
+    Kind::PowerSupply,
 ];
 
 fn kind_index(k: Kind) -> usize {

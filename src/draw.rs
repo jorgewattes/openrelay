@@ -640,6 +640,25 @@ pub fn draw_comp(p: &Painter, xf: Xf, c: &Comp, cx: &DrawCtx) {
             d.line(1.95, 2.4, 1.95, 3.6);
             d.line(0.4, 3.0, 2.6, 3.0);
         }
+        PowerSupply => {
+            // AC/DC converter: box split by a diagonal, "~" in, "=" out.
+            d.line_c(0.0, 0.0, 0.0, 1.0, pc(0));
+            d.line_c(3.0, 0.0, 3.0, 1.0, pc(1));
+            d.line_c(0.0, 5.0, 0.0, 6.0, pc(2));
+            d.line_c(3.0, 5.0, 3.0, 6.0, pc(3));
+            let on = cx.sim && c.st.energized;
+            let fill = if on {
+                if cx.dark { Color32::from_rgb(30, 90, 60) } else { Color32::from_rgb(214, 244, 224) }
+            } else {
+                cx.paper
+            };
+            d.rect(-1.2, 1.0, 4.2, 5.0, Some(fill));
+            d.line(-1.2, 5.0, 4.2, 1.0);
+            d.text(0.1, 2.1, "~", 1.3, Align2::CENTER_CENTER, cx.ink);
+            d.text(2.9, 3.3, "=", 1.3, Align2::CENTER_CENTER, cx.ink);
+            let out = crate::circuit::DC_LEVELS.get(c.color as usize).copied().unwrap_or(24.0);
+            d.text(2.6, 4.45, &format!("{out:.0}V"), 0.7, Align2::CENTER_CENTER, cx.ink);
+        }
         Brake => {
             d.line_c(0.0, 0.0, 0.0, 2.0, pc(0));
             d.line_c(0.0, 4.0, 0.0, 6.0, pc(1));

@@ -163,6 +163,8 @@ pub enum Kind {
     Supply3,
     /// Supply block: L1 L2 L3 N PE side by side.
     Supply5,
+    /// Power supply module: AC in (L N), DC out (+ −) at 24 or 12 V.
+    PowerSupply,
 }
 
 /// Palette categories, in library order, each with its marker colour
@@ -197,7 +199,7 @@ pub const CATEGORY_DEFS: [CategoryDef; 9] = {
             [31, 150, 130],
             &[Motor1, Motor1S, Motor1D, Motor3, Motor6X, Motor6, Motor12, MotorDahlander, Motor2W],
         ),
-        ("Outros", "Others", [150, 150, 150], &[Rectifier, Text]),
+        ("Outros", "Others", [150, 150, 150], &[Rectifier, PowerSupply, Text]),
     ]
 };
 
@@ -259,7 +261,7 @@ impl Kind {
             Motor3 => PINS_M3,
             Motor6 | MotorDahlander | Motor2W => PINS_M6,
             Motor6X => PINS_M6X,
-            Rectifier => PINS_RECT,
+            Rectifier | PowerSupply => PINS_RECT,
             Motor12 => PINS_M12,
             Motor1S => PINS_M1S,
             Motor1D => PINS_M1D,
@@ -332,6 +334,7 @@ impl Kind {
             Motor6 | Motor6X | MotorDahlander | Motor2W => (-2.0, 0.0, 9.5, 11.0),
             Motor12 => (-2.0, 0.0, 18.5, 12.0),
             Rectifier => (-1.4, 0.0, 4.4, 6.0),
+            PowerSupply => (-1.6, 0.0, 4.6, 6.0),
             Brake => (-1.8, 0.0, 1.8, 6.0),
             Motor1S => (-2.2, 0.0, 6.2, 8.0),
             Motor1D => (-2.4, 0.0, 8.4, 10.0),
@@ -423,6 +426,7 @@ impl Kind {
             Breaker1 | Breaker2 | Breaker3 | MotorBreaker3 => "Q",
             Rcd2 | Rcd4 => "DR",
             Rectifier => "U",
+            PowerSupply => "G",
             Brake => "YB",
             PushNo | PushNc | Switch | EStop => "S",
             LimitNo | LimitNc => "SQ",
@@ -479,6 +483,7 @@ impl Kind {
             MotorDahlander => t("Motor Dahlander – 2 velocidades", "Dahlander motor – 2 speeds"),
             Motor2W => t("Motor de dois enrolamentos – 2 velocidades", "Two-winding motor – 2 speeds"),
             Rectifier => t("Módulo retificador do freio", "Brake rectifier module"),
+            PowerSupply => t("Fonte CA/CC (24 / 12 V)", "AC/DC power supply (24 / 12 V)"),
             Brake => t("Freio eletromagnético (bobina CC)", "Electromagnetic brake (DC coil)"),
             Supply3 => t("3 fases L1 L2 L3", "3 phases L1 L2 L3"),
             Supply5 => t("L1 L2 L3 N PE", "L1 L2 L3 N PE"),
@@ -578,6 +583,8 @@ pub const MOTOR2S_NOMINALS: [f32; 3] = [380.0, 220.0, 440.0];
 pub const BRAKE_NOMINALS: [f32; 3] = [180.0, 99.0, 198.0];
 /// Rectifier: DC output as a fraction of the AC input (half / full wave).
 pub const RECT_FACTORS: [f32; 2] = [0.45, 0.9];
+/// Power supply: AC input options (V) and DC outputs (index into DC_LEVELS, kept in `color`).
+pub const PSU_INPUTS: [f32; 2] = [220.0, 127.0];
 /// Dual-voltage single-phase motor: (parallel, series) supply voltage.
 pub const MOTOR1D_NOMINALS: [(f32, f32); 1] = [(127.0, 220.0)];
 
@@ -623,6 +630,7 @@ pub fn volt_choices(k: Kind) -> Vec<String> {
         MotorDahlander | Motor2W => MOTOR2S_NOMINALS.iter().map(|v| format!("{} CA ({})", vtxt(*v), t("entre fases", "line"))).collect(),
         Brake => BRAKE_NOMINALS.iter().map(|v| format!("{} CC", vtxt(*v))).collect(),
         Rectifier => vec![t("Meia onda (CC = 0,45 × CA)", "Half wave (DC = 0.45 × AC)").into(), t("Onda completa (CC = 0,9 × CA)", "Full wave (DC = 0.9 × AC)").into()],
+        PowerSupply => PSU_INPUTS.iter().map(|v| format!("{v:.0} V CA")).collect(),
         Motor1D => MOTOR1D_NOMINALS.iter().map(|(p, s)| format!("{p:.0} V {} / {s:.0} V {}", t("paralelo", "parallel"), t("série", "series"))).collect(),
         _ => vec![],
     }
@@ -635,6 +643,7 @@ pub fn volt_label(k: Kind) -> &'static str {
         TermL1 | TermL2 | TermL3 | Supply3 | Supply5 => t("Sistema", "System"),
         TermP24 => t("Tensão", "Voltage"),
         Rectifier => t("Tipo", "Type"),
+        PowerSupply => t("Entrada (CA)", "Input (AC)"),
         _ => t("Tensão nominal", "Rated voltage"),
     }
 }
@@ -653,6 +662,7 @@ pub fn nominal(c: &Comp) -> Option<(Cur, f32)> {
         Motor1D => Some((Cur::Ac, MOTOR1D_NOMINALS.get(i).unwrap_or(&MOTOR1D_NOMINALS[0]).0)),
         MotorDahlander | Motor2W => Some((Cur::Ac, *MOTOR2S_NOMINALS.get(i).unwrap_or(&MOTOR2S_NOMINALS[0]))),
         Brake => Some((Cur::Dc, *BRAKE_NOMINALS.get(i).unwrap_or(&BRAKE_NOMINALS[0]))),
+        PowerSupply => Some((Cur::Ac, *PSU_INPUTS.get(i).unwrap_or(&PSU_INPUTS[0]))),
         _ => None,
     }
 }
@@ -669,6 +679,11 @@ pub fn volt_badge(c: &Comp) -> Option<String> {
         Motor6 | Motor6X => MOTOR6_NOMINALS.get(i).map(|(d, y)| format!("Δ{d:.0}/Y{y:.0}V")),
         Motor12 => Some("220/380/440/760V".into()),
         Motor1D => Some("127/220V".into()),
+        PowerSupply => Some(format!(
+            "{:.0}V~/{:.0}V=",
+            PSU_INPUTS.get(i).unwrap_or(&PSU_INPUTS[0]),
+            DC_LEVELS.get(c.color as usize).unwrap_or(&DC_LEVELS[0])
+        )),
         _ => None,
     }
 }
@@ -1008,6 +1023,7 @@ pub fn pin_numbers(c: &Comp, linked: Option<Kind>) -> Vec<String> {
         Breaker3 | MotorBreaker3 | Main3 | Thermal3 => v(&["1", "3", "5", "2", "4", "6"]),
         Motor1 => v(&["U1", "U2"]),
         Rectifier => v(&["~", "~", "+", "−"]),
+        PowerSupply => v(&["L", "N", "+", "−"]),
         Brake => v(&["1", "2"]),
         _ => vec![],
     }

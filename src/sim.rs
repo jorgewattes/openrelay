@@ -168,13 +168,24 @@ pub fn build_nets(circ: &Circuit, act: &HashMap<String, bool>) -> Nets {
     let mut level: HashMap<usize, u8> = HashMap::new();
     let mut short = HashSet::new();
     let mut short_pair = None;
+    // Terminals, supply blocks and power supplies that are on (DC + / − outputs).
+    let mut feeds: Vec<(P, Pot, u8)> = Vec::new();
     for c in &circ.comps {
         for (pi, &s) in c.kind.sources().iter().enumerate() {
-            let r = uf.find(idx[&c.pin(pi)]);
+            feeds.push((c.pin(pi), s, c.volt));
+        }
+        if c.kind == Kind::PowerSupply && c.st.energized {
+            feeds.push((c.pin(2), Pot::P24, c.color));
+            feeds.push((c.pin(3), Pot::M0, c.color));
+        }
+    }
+    {
+        for &(pin, s, lvl) in &feeds {
+            let r = uf.find(idx[&pin]);
             match pot.get(&r).copied() {
                 None => {
                     pot.insert(r, s);
-                    level.insert(r, c.volt);
+                    level.insert(r, lvl);
                 }
                 Some(o) if conflict(o, s) => {
                     short.insert(r);
@@ -340,6 +351,22 @@ impl Sim {
                     if c.kind == Kind::TimerOff && e && !c.st.out {
                         c.st.out = true;
                         c.st.timer = 0.0;
+                        changed = true;
+                    }
+                }
+                if c.kind == Kind::PowerSupply {
+                    // On only with its rated AC input; then + / − become a DC source.
+                    let (e, volt, vstat) = match (volts(&nets, c.pin(0), c.pin(1)), nominal(c)) {
+                        (Some((k, v, _)), Some(n)) => {
+                            let s = check(n, (k, v));
+                            (s == 0, v, s)
+                        }
+                        _ => (false, 0.0, 0),
+                    };
+                    c.st.volt = volt;
+                    c.st.vstat = vstat;
+                    if e != c.st.energized {
+                        c.st.energized = e;
                         changed = true;
                     }
                 }
@@ -1325,6 +1352,37 @@ mod tests {
         c.wire((13, 2), (13, 0));
         s.start(&mut c);
         assert!(s.fault.is_none(), "L2 joined to L2 is not a short");
+    }
+
+    #[test]
+    fn power_supply_makes_dc_from_ac() {
+        let mut c = Circuit::default();
+        c.add(Kind::TermL1, (0, 0).into(), 0, "");
+        c.add(Kind::TermN, (3, 0).into(), 0, "");
+        let g = c.add(Kind::PowerSupply, (0, 4).into(), 0, "G1");
+        c.wire((0, 0), (0, 4));
+        c.wire((3, 0), (3, 4));
+        let h = c.add(Kind::Lamp, (0, 14).into(), 0, "H1");
+        c.comp_mut(h).unwrap().volt = 4; // 24 V CC
+        c.wire((0, 10), (0, 14));
+        c.wire((0, 20), (0, 22));
+        c.wire((0, 22), (3, 22));
+        c.wire((3, 22), (3, 10));
+        let mut s = Sim::default();
+        s.start(&mut c);
+        let l = get(&c, Kind::Lamp, "H1");
+        assert!(l.st.energized && l.st.vstat == 0, "24 V lamp on 24 V output: {} V", l.st.volt);
+        // 12 V output: the 24 V lamp is under-voltage.
+        c.comp_mut(g).unwrap().color = 1;
+        s.start(&mut c);
+        assert_eq!(get(&c, Kind::Lamp, "H1").st.vstat, -1);
+        // 127 V input setting on a 220 V supply: over-voltage, no output.
+        c.comp_mut(g).unwrap().color = 0;
+        c.comp_mut(g).unwrap().volt = 1;
+        s.start(&mut c);
+        assert!(!get(&c, Kind::PowerSupply, "G1").st.energized);
+        assert!(!get(&c, Kind::Lamp, "H1").st.energized);
+        assert!(s.fault.is_none(), "{:?}", s.fault);
     }
 
     #[test]
